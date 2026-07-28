@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import OfflineStatus from '@/components/OfflineStatus';
 
@@ -9,16 +9,25 @@ interface LayoutProps {
 
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation();
-  const navigate = useNavigate();
   const { user, logout } = useAuth();
 
   const navigation = [
     { name: 'Dashboard', path: '/', icon: '📊' },
+    // Batches are the primary data-entry action (phase 2) — one lot, one
+    // dye bath; orders attach to the batch afterwards.
+    { name: 'Batches', path: '/batches', icon: '🧵' },
+    { name: 'Orders', path: '/orders', icon: '📦' },
     { name: 'Production Data', path: '/production', icon: '📝' },
+    { name: 'Products', path: '/products', icon: '👕' },
     { name: 'Compliance', path: '/compliance', icon: '✓' },
     { name: 'Reports', path: '/reports', icon: '📄' },
     { name: 'Settings', path: '/settings', icon: '⚙️' },
   ];
+
+  // The mobile bottom bar fits ~5 items; keep the factory-floor essentials.
+  const mobileNavigation = navigation.filter((item) =>
+    ['/', '/batches', '/orders', '/production', '/reports'].includes(item.path)
+  );
 
   const isActive = (path: string) => {
     if (path === '/') {
@@ -80,7 +89,7 @@ export default function Layout({ children }: LayoutProps) {
       {/* Mobile Navigation */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-10">
         <div className="flex justify-around">
-          {navigation.map((item) => (
+          {mobileNavigation.map((item) => (
             <Link
               key={item.path}
               to={item.path}

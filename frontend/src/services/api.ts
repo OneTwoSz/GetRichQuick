@@ -16,6 +16,23 @@ import type {
   ReportFormData,
   DashboardSummary,
   AuditLog,
+  Product,
+  ProductFormData,
+  ProductCarbon,
+  Order,
+  OrderFormData,
+  OrderFootprint,
+  ProductionBatch,
+  BatchFormData,
+  BatchInput,
+  BatchInputFormData,
+  JobWorker,
+  JobWorkInfo,
+  FabricInventoryItem,
+  MonthlyUtility,
+  Reconciliation,
+  ProcessType,
+  InventoryStatus,
 } from '@/types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
@@ -187,6 +204,147 @@ export const ocrAPI = {
       })
       .then((res) => res.data);
   },
+};
+
+// Products API — per-SKU catalog with bills of materials. Per-garment carbon
+// is a function of the BOM, so the carbon endpoint is per-product, not a
+// rollup of the whole factory.
+export const productsAPI = {
+  getAll: () => api.get<Product[]>('/products').then((res) => res.data),
+
+  get: (id: number) => api.get<Product>(`/products/${id}`).then((res) => res.data),
+
+  create: (data: ProductFormData) =>
+    api.post<Product>('/products', data).then((res) => res.data),
+
+  update: (id: number, data: Omit<ProductFormData, 'bom'>) =>
+    api.put<Product>(`/products/${id}`, data).then((res) => res.data),
+
+  delete: (id: number) => api.delete(`/products/${id}`).then((res) => res.data),
+
+  getCarbon: (id: number) =>
+    api.get<ProductCarbon>(`/products/${id}/carbon`).then((res) => res.data),
+};
+
+// ---------------------------------------------------------------------------
+// Phase 2 — batches, orders, allocation
+// ---------------------------------------------------------------------------
+
+// Orders API — the unit footprints are reported against.
+export const ordersAPI = {
+  getAll: (status?: string) =>
+    api
+      .get<Order[]>('/orders', { params: status ? { status_filter: status } : undefined })
+      .then((res) => res.data),
+
+  create: (data: OrderFormData) =>
+    api.post<Order>('/orders', data).then((res) => res.data),
+
+  update: (id: number, data: OrderFormData) =>
+    api.put<Order>(`/orders/${id}`, data).then((res) => res.data),
+
+  delete: (id: number) => api.delete(`/orders/${id}`).then((res) => res.data),
+
+  getFootprint: (id: number) =>
+    api.get<OrderFootprint>(`/orders/${id}/footprint`).then((res) => res.data),
+
+  createShareLink: (id: number) =>
+    api.post<Order>(`/orders/${id}/share-link`).then((res) => res.data),
+};
+
+// Production Batches API — the primary data-entry unit.
+export const batchesAPI = {
+  getAll: (processType?: ProcessType) =>
+    api
+      .get<ProductionBatch[]>('/batches', {
+        params: processType ? { process_type: processType } : undefined,
+      })
+      .then((res) => res.data),
+
+  get: (id: number) => api.get<ProductionBatch>(`/batches/${id}`).then((res) => res.data),
+
+  create: (data: BatchFormData) =>
+    api.post<ProductionBatch>('/batches', data).then((res) => res.data),
+
+  delete: (id: number) => api.delete(`/batches/${id}`).then((res) => res.data),
+
+  addInput: (batchId: number, data: BatchInputFormData) =>
+    api.post<BatchInput>(`/batches/${batchId}/inputs`, data).then((res) => res.data),
+
+  deleteInput: (batchId: number, inputId: number) =>
+    api.delete(`/batches/${batchId}/inputs/${inputId}`).then((res) => res.data),
+
+  attachOrders: (batchId: number, lines: { order_id: number; fabric_kg?: number | null }[]) =>
+    api
+      .post<ProductionBatch>(`/batches/${batchId}/allocations`, { lines })
+      .then((res) => res.data),
+
+  complete: (batchId: number) =>
+    api.post<ProductionBatch>(`/batches/${batchId}/complete`).then((res) => res.data),
+
+  createJobworkLink: (batchId: number) =>
+    api.post<ProductionBatch>(`/batches/${batchId}/jobwork-link`).then((res) => res.data),
+};
+
+// Job workers (outsourced dyeing units, CETPs).
+export const jobWorkersAPI = {
+  getAll: () => api.get<JobWorker[]>('/job-workers').then((res) => res.data),
+
+  create: (data: { name: string; process_type: ProcessType; location?: string; contact?: string }) =>
+    api.post<JobWorker>('/job-workers', data).then((res) => res.data),
+};
+
+// Public (login-free) endpoints: job-work submission + buyer share view.
+// Plain axios instance — no auth token, no 401 redirect.
+const publicApi = axios.create({ baseURL: API_URL });
+
+export const publicAPI = {
+  getJobWorkInfo: (token: string) =>
+    publicApi.get<JobWorkInfo>(`/jobwork/${token}`).then((res) => res.data),
+
+  submitJobWork: (token: string, inputs: BatchInputFormData[], submittedBy?: string) =>
+    publicApi
+      .post(`/jobwork/${token}`, { inputs, submitted_by: submittedBy })
+      .then((res) => res.data),
+
+  getSharedFootprint: (token: string) =>
+    publicApi.get<OrderFootprint>(`/share/${token}`).then((res) => res.data),
+};
+
+// Fabric inventory (leftover / buffer fabric with embodied footprint).
+export const inventoryAPI = {
+  getAll: (status?: InventoryStatus) =>
+    api
+      .get<FabricInventoryItem[]>('/inventory', {
+        params: status ? { status_filter: status } : undefined,
+      })
+      .then((res) => res.data),
+
+  consume: (id: number, orderId: number) =>
+    api
+      .post<FabricInventoryItem>(`/inventory/${id}/consume`, { order_id: orderId })
+      .then((res) => res.data),
+
+  writeOff: (id: number, status: 'sold' | 'waste') =>
+    api
+      .post<FabricInventoryItem>(`/inventory/${id}/write-off`, { status })
+      .then((res) => res.data),
+};
+
+// Monthly utilities + single-meter reconciliation.
+export const utilitiesAPI = {
+  getAll: () => api.get<MonthlyUtility[]>('/utilities').then((res) => res.data),
+
+  upsert: (data: {
+    year: number;
+    month: number;
+    total_electricity_kwh: number;
+    total_water_liters: number;
+    note?: string;
+  }) => api.post<MonthlyUtility>('/utilities', data).then((res) => res.data),
+
+  reconcile: (year: number, month: number) =>
+    api.get<Reconciliation>(`/utilities/reconcile/${year}/${month}`).then((res) => res.data),
 };
 
 // Audit Log API

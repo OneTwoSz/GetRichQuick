@@ -1,6 +1,6 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { productionAPI, carbonAPI } from '@/services/api';
-import type { ProductionRecord, ProductionFormData, FabricType, TransportMode, CarbonSummary } from '@/types';
+import type { ProductionRecord, ProductionFormData, FabricType, CarbonSummary } from '@/types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import BillUpload from '@/components/BillUpload';
 import { enqueueWrite } from '@/services/offlineQueue';
@@ -217,7 +217,7 @@ export default function Production() {
                     fill="#8884d8"
                     dataKey="value"
                   >
-                    {chartData.map((entry, index) => (
+                    {chartData.map((_entry, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>

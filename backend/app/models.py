@@ -22,10 +22,91 @@ class TransportMode(str, enum.Enum):
     SEA_FREIGHT = "sea_freight"
 
 
+class MaterialCategory(str, enum.Enum):
+    """Coarse buckets for BOM line items, used to look up an emission factor.
+
+    Kept deliberately flat so factories can describe a real garment without
+    needing an LCA-grade taxonomy. The category drives the carbon factor when
+    a BOM item doesn't supply its own override.
+    """
+    FIBER = "fiber"          # cotton, polyester, blend, etc. — uses fabric factors
+    DYE = "dye"
+    CHEMICAL = "chemical"     # softeners, salts, fixatives
+    TRIM = "trim"             # buttons, labels, sewing thread, zippers
+
+
 class ReportType(str, enum.Enum):
     MONTHLY = "monthly"
     QUARTERLY = "quarterly"
     CUSTOM = "custom"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 enums — production batches & allocation
+# ---------------------------------------------------------------------------
+
+
+class ProcessType(str, enum.Enum):
+    KNITTING = "knitting"
+    BLEACHING = "bleaching"
+    DYEING = "dyeing"
+    PRINTING = "printing"
+    FINISHING = "finishing"
+    CUTTING_SEWING = "cutting_sewing"
+
+
+class AllocationMethod(str, enum.Enum):
+    """ISO 14044 hierarchy rungs. MASS is the default for wet processing
+    (impact scales with fabric mass); UNITS when garments are near-identical
+    in weight; ECONOMIC only as a fallback — reports flag it."""
+    MASS = "mass"
+    UNITS = "units"
+    ECONOMIC = "economic"
+
+
+class DataQuality(str, enum.Enum):
+    """Primary-vs-secondary data tiering, the axis DPP/buyer frameworks care
+    about. Every batch input carries one; reports show the mix."""
+    MEASURED = "measured"          # meter reading, weighed drawdown
+    ESTIMATED = "estimated"        # derived from a bill (utility, job-work)
+    DEFAULT_FACTOR = "default_factor"  # built-in per-process default
+
+
+class BatchInputType(str, enum.Enum):
+    WATER_L = "water_l"
+    ELECTRICITY_KWH = "electricity_kwh"
+    CHEMICAL_KG = "chemical_kg"
+    DYE_KG = "dye_kg"
+    STEAM_KG = "steam_kg"
+    DIESEL_L = "diesel_l"
+
+
+class InventoryStatus(str, enum.Enum):
+    IN_STOCK = "in_stock"
+    CONSUMED = "consumed"
+    SOLD = "sold"
+    WASTE = "waste"
+
+
+class OrderStatus(str, enum.Enum):
+    OPEN = "open"
+    IN_PRODUCTION = "in_production"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class WasteDestination(str, enum.Enum):
+    """Where cutting waste goes. Tiruppur waste usually feeds the recycling
+    trade — recording it improves the circularity story on reports."""
+    RECYCLER = "recycler"
+    LANDFILL = "landfill"
+    REUSED = "reused"
+
+
+class StockEntryType(str, enum.Enum):
+    PURCHASE = "purchase"
+    DRAWDOWN = "drawdown"
+    RECONCILIATION = "reconciliation"
 
 
 class User(Base):
@@ -52,6 +133,10 @@ class Factory(Base):
     gst_number = Column(String, unique=True)
     employee_count = Column(Integer)
     production_capacity_kg_per_month = Column(Integer)
+    # Where this factory's cutting waste ends up (see WasteDestination).
+    # Factory-level because the destination is a standing arrangement
+    # (e.g. a recycler contract), not a per-batch decision.
+    cutting_waste_destination = Column(Enum(WasteDestination), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
@@ -60,6 +145,10 @@ class Factory(Base):
     chemicals = relationship("Chemical", back_populates="factory", cascade="all, delete-orphan")
     reports = relationship("Report", back_populates="factory", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="factory", cascade="all, delete-orphan")
+    products = relationship("Product", back_populates="factory", cascade="all, delete-orphan")
+    orders = relationship("Order", back_populates="factory", cascade="all, delete-orphan")
+    production_batches = relationship("ProductionBatch", back_populates="factory", cascade="all, delete-orphan")
+    job_workers = relationship("JobWorker", back_populates="factory", cascade="all, delete-orphan")
 
 
 class ProductionRecord(Base):
@@ -79,11 +168,79 @@ class ProductionRecord(Base):
     transport_distance_km = Column(Float, default=0)
     transport_mode = Column(Enum(TransportMode), nullable=True)
     notes = Column(Text)
+    # Optional link to a Product (SKU). Nullable because we still allow
+    # untyped batch entries while a factory backfills its catalog. When set,
+    # the batch's emissions get attributed to that product for per-SKU rollups.
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
     factory = relationship("Factory", back_populates="production_records")
+    product = relationship("Product", back_populates="production_records")
+
+
+class Product(Base):
+    """A SKU / style produced by the factory.
+
+    The DPP unit of granularity is per-SKU, so each row here represents one
+    product the factory makes (e.g. "Crew tee, organic cotton, 180 GSM"). The
+    BOM table lists the materials that go into one garment.
+    """
+    __tablename__ = "products"
+
+    id = Column(Integer, primary_key=True, index=True)
+    factory_id = Column(Integer, ForeignKey("factories.id"), nullable=False, index=True)
+    sku = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    # Free-text fiber composition like "95% organic cotton, 5% elastane".
+    # Kept as a string for v1 — DPP will eventually want structured percentages.
+    fiber_composition = Column(String, nullable=True)
+    garment_weight_g = Column(Float, nullable=False)
+    # Marker efficiency differs by style — knitwear cutting waste commonly
+    # runs 15–25%. Percent (0–100). Fabric demand for an order of this style
+    # = units × (garment_weight_g/1000) ÷ (1 − waste/100), so wasteful styles
+    # correctly carry more of a shared batch's footprint.
+    cutting_waste_percent = Column(Float, default=0, nullable=False)
+    recycled_content_pct = Column(Float, default=0)
+    care_instructions = Column(Text, nullable=True)
+    target_buyer = Column(String, nullable=True)
+    active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    factory = relationship("Factory", back_populates="products")
+    bom_items = relationship(
+        "BillOfMaterialsItem",
+        back_populates="product",
+        cascade="all, delete-orphan",
+        order_by="BillOfMaterialsItem.id",
+    )
+    production_records = relationship("ProductionRecord", back_populates="product")
+
+
+class BillOfMaterialsItem(Base):
+    """One line in the bill of materials for a Product.
+
+    quantity_per_garment_g is the per-unit input. carbon_factor_override lets
+    a factory plug in a supplier-specific value (e.g. recycled-PET yarn from
+    a vendor with an EPD); when null we fall back to the category lookup.
+    """
+    __tablename__ = "bom_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    material_name = Column(String, nullable=False)
+    category = Column(Enum(MaterialCategory), nullable=False)
+    # The lookup key for the carbon factor, e.g. "cotton", "organic_cotton",
+    # "polyester", "recycled_polyester", "elastane", or a free string like
+    # "reactive_dye". Falls back to a generic factor for the category.
+    material_key = Column(String, nullable=True)
+    quantity_per_garment_g = Column(Float, nullable=False)
+    carbon_factor_override = Column(Float, nullable=True)  # kg CO2e per kg
+    notes = Column(Text, nullable=True)
+
+    product = relationship("Product", back_populates="bom_items")
 
 
 class Chemical(Base):
@@ -257,3 +414,193 @@ class AuditLog(Base):
 
     # Relationships
     factory = relationship("Factory", back_populates="audit_logs")
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — Production batches & allocation
+#
+# Field reality: when two orders need the same fabric, the factory runs ALL
+# of it in one combined lot — one dye bath, shared water/power/chemicals.
+# Consumption is only measurable at the batch (or facility) level, never per
+# order. So resources are logged against a ProductionBatch; an allocation
+# engine (services/allocation.py) splits batch consumption across the orders
+# the batch served.
+# ---------------------------------------------------------------------------
+
+
+class Order(Base):
+    """A buyer order for N units of one style. The unit the footprint is
+    ultimately reported against — but never the unit data is entered at."""
+    __tablename__ = "orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    factory_id = Column(Integer, ForeignKey("factories.id"), nullable=False, index=True)
+    order_code = Column(String, nullable=False)
+    buyer_name = Column(String, nullable=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    units = Column(Integer, nullable=False)
+    # Only needed when a batch uses ECONOMIC allocation.
+    order_value = Column(Float, nullable=True)
+    status = Column(Enum(OrderStatus), default=OrderStatus.OPEN, nullable=False)
+    # Buyer-facing read-only share link token. Generated on demand; the
+    # public endpoint serves footprint + allocation statement + data-quality
+    # mix so the factory can answer any brand portal request in one click.
+    share_token = Column(String, unique=True, nullable=True, index=True)
+    notes = Column(Text, nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    factory = relationship("Factory", back_populates="orders")
+    product = relationship("Product")
+    allocations = relationship("BatchAllocation", back_populates="order", cascade="all, delete-orphan")
+
+
+class JobWorker(Base):
+    """Outsourced processor (dyeing unit, CETP...). Very Tiruppur-specific:
+    dyeing is frequently job-worked and the manufacturer has no primary data
+    for that step — batches flagged outsourced point here."""
+    __tablename__ = "job_workers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    factory_id = Column(Integer, ForeignKey("factories.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    process_type = Column(Enum(ProcessType), nullable=False)
+    location = Column(String, nullable=True)
+    contact = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    factory = relationship("Factory", back_populates="job_workers")
+
+
+class ProductionBatch(Base):
+    """One physical production run (a lot). Resources attach here; orders
+    attach here; the allocation engine does the splitting."""
+    __tablename__ = "production_batches"
+
+    id = Column(Integer, primary_key=True, index=True)
+    factory_id = Column(Integer, ForeignKey("factories.id"), nullable=False, index=True)
+    batch_code = Column(String, nullable=False)  # e.g. "LOT-2026-0714-WHT"
+    process_type = Column(Enum(ProcessType), nullable=False)
+    colour = Column(String, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    total_fabric_kg = Column(Float, nullable=False)
+    # Re-dye / re-process runs. Routine, roughly doubles water/energy/
+    # chemicals for the lot — inputs of a rework batch are ADDED to the
+    # original batch's order allocations pro rata. Do not hide it.
+    is_rework = Column(Boolean, default=False, nullable=False)
+    rework_of_batch_id = Column(Integer, ForeignKey("production_batches.id"), nullable=True)
+    allocation_method = Column(Enum(AllocationMethod), default=AllocationMethod.MASS, nullable=False)
+    allocation_note = Column(Text, nullable=True)  # free text, printed in audit trail
+    # Job-work: the batch ran at an outside unit. A token URL lets the job
+    # worker submit actual consumption without a login (data path 1 of §5).
+    outsourced = Column(Boolean, default=False, nullable=False)
+    job_worker_id = Column(Integer, ForeignKey("job_workers.id"), nullable=True)
+    job_work_token = Column(String, unique=True, nullable=True, index=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    factory = relationship("Factory", back_populates="production_batches")
+    job_worker = relationship("JobWorker")
+    rework_of = relationship("ProductionBatch", remote_side=[id], backref="reworks")
+    inputs = relationship("BatchInput", back_populates="batch", cascade="all, delete-orphan")
+    allocations = relationship("BatchAllocation", back_populates="batch", cascade="all, delete-orphan")
+
+
+class BatchInput(Base):
+    """One resource drawn by a batch — a meter reading, a chemical drawdown,
+    a diesel top-up. `data_quality` tags how the number was obtained."""
+    __tablename__ = "batch_inputs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(Integer, ForeignKey("production_batches.id"), nullable=False, index=True)
+    input_type = Column(Enum(BatchInputType), nullable=False)
+    # FK to chemical inventory when input_type is CHEMICAL_KG / DYE_KG —
+    # links compliance status (REACH/ZDHC) onto every batch that used it.
+    chemical_id = Column(Integer, ForeignKey("chemicals.id"), nullable=True)
+    quantity = Column(Float, nullable=False)
+    data_quality = Column(Enum(DataQuality), default=DataQuality.MEASURED, nullable=False)
+    source = Column(String, nullable=True)  # "meter reading", "utility bill", "supplier declaration"
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    batch = relationship("ProductionBatch", back_populates="inputs")
+    chemical = relationship("Chemical")
+
+
+class BatchAllocation(Base):
+    """One order's slice of a batch. `allocated_share` is computed by the
+    engine and stored for audit immutability — reports print what was used
+    at the time, even if the batch is edited later."""
+    __tablename__ = "batch_allocations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(Integer, ForeignKey("production_batches.id"), nullable=False, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=False, index=True)
+    # Style snapshot at allocation time (order.product_id can change).
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
+    fabric_kg = Column(Float, nullable=False)  # incl. this style's cutting waste
+    garment_units = Column(Integer, nullable=True)
+    order_value = Column(Float, nullable=True)  # only needed for ECONOMIC
+    allocated_share = Column(Float, nullable=False)  # 0..1, stored for audit
+
+    batch = relationship("ProductionBatch", back_populates="allocations")
+    order = relationship("Order", back_populates="allocations")
+
+
+class FabricInventory(Base):
+    """Leftover / buffer fabric from a batch (factories over-produce ~3–5%).
+    Carries its pro-rata embodied footprint so nothing vanishes: consuming
+    it later transfers the footprint to that order; writing it off books it
+    to the factory waste ledger."""
+    __tablename__ = "fabric_inventory"
+
+    id = Column(Integer, primary_key=True, index=True)
+    factory_id = Column(Integer, ForeignKey("factories.id"), nullable=False, index=True)
+    source_batch_id = Column(Integer, ForeignKey("production_batches.id"), nullable=False)
+    fabric_kg = Column(Float, nullable=False)
+    embodied_co2_kg = Column(Float, nullable=False)
+    embodied_water_l = Column(Float, nullable=False)
+    status = Column(Enum(InventoryStatus), default=InventoryStatus.IN_STOCK, nullable=False)
+    consumed_by_order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    source_batch = relationship("ProductionBatch")
+    consumed_by_order = relationship("Order")
+
+
+class ChemicalStockEntry(Base):
+    """Ledger over the existing Chemical master records: purchases add
+    stock, batch drawdowns subtract, periodic physical reconciliation
+    books the variance (spread as overhead)."""
+    __tablename__ = "chemical_stock_entries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    factory_id = Column(Integer, ForeignKey("factories.id"), nullable=False, index=True)
+    chemical_id = Column(Integer, ForeignKey("chemicals.id"), nullable=False, index=True)
+    entry_type = Column(Enum(StockEntryType), nullable=False)
+    # Signed: purchases positive, drawdowns negative, reconciliation either.
+    quantity_kg = Column(Float, nullable=False)
+    batch_input_id = Column(Integer, ForeignKey("batch_inputs.id"), nullable=True)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    chemical = relationship("Chemical")
+
+
+class MonthlyUtility(Base):
+    """The single-meter problem: one electricity meter, one water line.
+    Monthly bill totals go here; reconciliation computes
+    monthly total − Σ(batch-attributed inputs) = facility overhead, spread
+    across the month's output by mass. Factories with zero sub-metering run
+    "overhead only": everything top-down — lower data-quality tier, but
+    honest and usable on day one."""
+    __tablename__ = "monthly_utilities"
+
+    id = Column(Integer, primary_key=True, index=True)
+    factory_id = Column(Integer, ForeignKey("factories.id"), nullable=False, index=True)
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)  # 1..12
+    total_electricity_kwh = Column(Float, default=0, nullable=False)
+    total_water_liters = Column(Float, default=0, nullable=False)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

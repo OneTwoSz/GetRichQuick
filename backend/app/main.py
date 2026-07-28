@@ -1,7 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import init_db
-from .routes import auth, factory, production, carbon, water_energy, chemicals, reports, dashboard, audit, ocr, verify
+from .routes import (
+    auth, factory, production, carbon, water_energy, chemicals, reports,
+    dashboard, audit, ocr, verify, products, orders, batches, inventory,
+    reconciliation,
+)
 
 # Create FastAPI app
 app = FastAPI(
@@ -31,6 +35,16 @@ app.include_router(dashboard.router, prefix="/api")
 app.include_router(audit.router, prefix="/api")
 app.include_router(ocr.router, prefix="/api")
 app.include_router(verify.router, prefix="/api")
+app.include_router(products.router, prefix="/api")
+# Phase 2 — batch-level production reality & allocation
+app.include_router(orders.router, prefix="/api")
+app.include_router(orders.share_router, prefix="/api")     # public, login-free
+app.include_router(batches.router, prefix="/api")
+app.include_router(batches.jobworker_router, prefix="/api")
+app.include_router(batches.jobwork_router, prefix="/api")  # public, login-free
+app.include_router(inventory.router, prefix="/api")
+app.include_router(inventory.stock_router, prefix="/api")
+app.include_router(reconciliation.router, prefix="/api")
 
 
 @app.on_event("startup")

@@ -1,15 +1,121 @@
 from sqlalchemy.orm import Session
 from datetime import datetime
-from weasyprint import HTML
 from jinja2 import Template
+import logging
 import os
 from typing import Dict
-from ..models import Factory, ProductionRecord
+from ..models import (
+    BatchAllocation,
+    Factory,
+    Order,
+    ProductionBatch,
+    ProductionRecord,
+)
+from ..config import settings
+from . import batch_carbon
 from .carbon_calculator import CarbonCalculator
+
+logger = logging.getLogger(__name__)
+
+# WeasyPrint requires GTK runtime on Windows; deferred so the app starts
+# even when WeasyPrint isn't installable on the dev machine. If unavailable,
+# we save the rendered HTML alongside the PDF filename and skip PDF
+# rendering — the rest of the flow (signing, anchoring, verify) is unaffected
+# because those operate on the canonical JSON payload, not the PDF bytes.
+try:  # pragma: no cover
+    from weasyprint import HTML  # type: ignore
+    _WEASYPRINT_OK = True
+except Exception as _exc:  # pragma: no cover
+    HTML = None  # type: ignore[assignment]
+    _WEASYPRINT_OK = False
+    logger.warning("WeasyPrint unavailable — PDF rendering disabled (%s)", _exc)
 
 
 class ReportGenerator:
     """Service for generating PDF sustainability reports"""
+
+    @staticmethod
+    def batch_allocation_data(
+        db: Session,
+        factory_id: int,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> Dict:
+        """Allocation Statement + data-quality mix for every order touched
+        by a batch that started in the reporting window.
+
+        This is the section buyers' auditors ask for: which ISO 14044 rung
+        was used per batch, and what % of each footprint is MEASURED vs
+        ESTIMATED vs DEFAULT_FACTOR. Also feeds the signed report payload —
+        the statement is covered by the signature, not just the PDF.
+        """
+        order_ids = [
+            row.order_id
+            for row in (
+                db.query(BatchAllocation.order_id)
+                .join(ProductionBatch, ProductionBatch.id == BatchAllocation.batch_id)
+                .filter(
+                    ProductionBatch.factory_id == factory_id,
+                    ProductionBatch.started_at >= date_from,
+                    ProductionBatch.started_at <= date_to,
+                )
+                .distinct()
+                .all()
+            )
+        ]
+        orders = (
+            db.query(Order).filter(Order.id.in_(order_ids)).order_by(Order.order_code).all()
+            if order_ids else []
+        )
+
+        statements = []
+        total_co2 = 0.0
+        mix_weighted = {"measured": 0.0, "estimated": 0.0, "default_factor": 0.0}
+        any_economic = False
+        for order in orders:
+            fp = batch_carbon.order_footprint(db, order)
+            any_economic = any_economic or fp.used_economic_allocation
+            total_co2 += fp.co2_kg
+            for tier, pct in fp.quality_mix.items():
+                mix_weighted[tier] += pct * fp.co2_kg
+            statements.append({
+                "order_id": order.id,
+                "order_code": order.order_code,
+                "buyer_name": order.buyer_name,
+                "units": order.units,
+                "co2_kg": fp.co2_kg,
+                "water_l": fp.water_l,
+                "quality_mix": fp.quality_mix,
+                "used_economic_allocation": fp.used_economic_allocation,
+                "batches": [
+                    {
+                        "batch_code": line.batch_code,
+                        "process_type": line.process_type,
+                        "allocation_method": line.allocation_method,
+                        "allocated_share": line.allocated_share,
+                        "co2_kg": line.co2_kg,
+                        "is_rework": line.is_rework,
+                        "outsourced": line.outsourced,
+                        "data_quality_flags": line.data_quality_flags,
+                        "allocation_note": line.allocation_note,
+                    }
+                    for line in fp.batch_lines
+                ],
+            })
+
+        overall_mix = (
+            {tier: round(v / total_co2, 2) for tier, v in mix_weighted.items()}
+            if total_co2 > 0
+            else {"measured": 0.0, "estimated": 0.0, "default_factor": 0.0}
+        )
+
+        return {
+            "has_batch_data": bool(statements),
+            "rework_rate": batch_carbon.rework_rate(db, factory_id),
+            "order_statements": statements,
+            "overall_quality_mix": overall_mix,
+            "any_economic_allocation": any_economic,
+        }
 
     @staticmethod
     def generate_pdf_report(
@@ -76,23 +182,51 @@ class ReportGenerator:
             "chemicals_emissions": f"{carbon_summary.breakdown.chemicals:,.2f}",
             "transport_emissions": f"{carbon_summary.breakdown.transport:,.2f}",
             "chemical_compliance_percentage": f"{compliance_percentage:.1f}",
+            # Numeric copy for template comparisons ({% if ... >= 80 %}) —
+            # Jinja can't compare a formatted string against an int.
+            "chemical_compliance_percentage_num": compliance_percentage,
             "total_chemicals": total_chemicals,
             "compliant_chemicals": compliant_chemicals,
             "non_compliant_chemicals": non_compliant_chemicals,
         }
 
+        # Phase 2 sections: Allocation Statement, data-quality mix, rework
+        # rate. Only rendered when the factory has batch-level data — legacy
+        # per-record ("simple mode") reports are unchanged.
+        report_data.update(
+            ReportGenerator.batch_allocation_data(db, factory_id, date_from, date_to)
+        )
+
         # Generate HTML from template
         html_content = ReportGenerator._get_html_template(report_data)
 
-        # Generate PDF
-        reports_dir = "/app/reports"
+        # Generate PDF (or HTML fallback if WeasyPrint isn't installed).
+        # Reports dir is configurable so dev can point it at a host path
+        # like ./reports without needing the /app/reports Docker volume.
+        reports_dir = settings.REPORTS_DIR
         os.makedirs(reports_dir, exist_ok=True)
 
         filename = f"sustainability_report_{factory_id}_{date_from.strftime('%Y%m%d')}_{date_to.strftime('%Y%m%d')}.pdf"
         filepath = os.path.join(reports_dir, filename)
 
-        HTML(string=html_content).write_pdf(filepath)
-
+        if _WEASYPRINT_OK and HTML is not None:
+            HTML(string=html_content).write_pdf(filepath)
+        else:
+            # Dev fallback: WeasyPrint isn't installed (typical on Windows
+            # without GTK). Save the rendered HTML next to where the PDF
+            # would have lived so the report can still be inspected, signed,
+            # and anchored. The signing/verify pipeline operates on canonical
+            # JSON, not the PDF bytes, so it remains correct.
+            html_filename = filename.replace(".pdf", ".html")
+            html_filepath = os.path.join(reports_dir, html_filename)
+            with open(html_filepath, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            logger.info(
+                "WeasyPrint unavailable — saved HTML to %s instead of PDF",
+                html_filepath,
+            )
+            # Return the .pdf filename so DB references stay stable; the
+            # download endpoint can fall back to the .html sibling.
         return filename
 
     @staticmethod
@@ -281,7 +415,7 @@ class ReportGenerator:
 
     <div class="section">
         <div class="section-title">Chemical Compliance Status</div>
-        {% if chemical_compliance_percentage >= 80 %}
+        {% if chemical_compliance_percentage_num >= 80 %}
         <div class="success">
             <strong>✓ Good Compliance:</strong> {{ compliant_chemicals }} out of {{ total_chemicals }} chemicals are REACH & ZDHC compliant ({{ chemical_compliance_percentage }}%)
         </div>
@@ -302,6 +436,80 @@ class ReportGenerator:
         </div>
         {% endif %}
     </div>
+
+    {% if has_batch_data %}
+    <div class="section">
+        <div class="section-title">Batch Production & Rework</div>
+        <div class="metric-grid">
+            <div class="metric-box">
+                <div class="metric-label">Rework Rate (rework batches ÷ total)</div>
+                <div class="metric-value">{{ "%.1f"|format(rework_rate * 100) }} <span class="metric-unit">%</span></div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-label">Overall Data Quality (share of footprint)</div>
+                <div class="metric-value" style="font-size: 16px;">
+                    {{ overall_quality_mix.measured }}% measured ·
+                    {{ overall_quality_mix.estimated }}% estimated ·
+                    {{ overall_quality_mix.default_factor }}% default factors
+                </div>
+            </div>
+        </div>
+        <p style="font-size: 12px; color: #666;">
+            Rework runs (re-dyeing, re-processing) are recorded as separate batches and their
+            consumption is added to the affected orders — footprints reflect what actually happened.
+        </p>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Allocation Statement</div>
+        <p style="font-size: 12px; color: #666;">
+            Shared production batches are split across orders following the ISO 14044 hierarchy
+            (subdivision first, then physical/mass allocation; unit or economic allocation only where
+            noted). Shares are fixed at allocation time and preserved in the audit trail.
+        </p>
+        {% if any_economic_allocation %}
+        <div class="alert">
+            <strong>⚠ Economic allocation used:</strong> at least one batch in this period was
+            allocated by order value rather than mass. See the per-batch method column below.
+        </div>
+        {% endif %}
+        {% for stmt in order_statements %}
+        <h3 style="margin-bottom: 4px;">Order {{ stmt.order_code }}{% if stmt.buyer_name %} — {{ stmt.buyer_name }}{% endif %}</h3>
+        <p style="font-size: 12px; margin-top: 0;">
+            {{ stmt.units }} units · {{ "%.1f"|format(stmt.co2_kg) }} kg CO₂e ·
+            {{ "%.0f"|format(stmt.water_l) }} L water ·
+            data quality: {{ stmt.quality_mix.measured }}% measured,
+            {{ stmt.quality_mix.estimated }}% estimated,
+            {{ stmt.quality_mix.default_factor }}% default factors
+        </p>
+        <table class="breakdown-table">
+            <tr>
+                <th>Batch</th>
+                <th>Process</th>
+                <th>Method</th>
+                <th>Share</th>
+                <th>kg CO₂e</th>
+                <th>Notes</th>
+            </tr>
+            {% for b in stmt.batches %}
+            <tr>
+                <td>{{ b.batch_code }}</td>
+                <td>{{ b.process_type }}</td>
+                <td>{{ b.allocation_method }}</td>
+                <td>{{ "%.1f"|format(b.allocated_share * 100) }}%</td>
+                <td>{{ "%.2f"|format(b.co2_kg) }}</td>
+                <td>
+                    {%- if b.is_rework %}rework {% endif -%}
+                    {%- if b.outsourced %}outsourced {% endif -%}
+                    {%- if "default_factors" in b.data_quality_flags %}default factors {% endif -%}
+                    {%- if b.allocation_note %}{{ b.allocation_note }}{% endif -%}
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% endfor %}
+    </div>
+    {% endif %}
 
     <div class="section">
         <div class="section-title">Data Traceability & Audit Trail</div>

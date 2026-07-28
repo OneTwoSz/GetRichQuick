@@ -67,7 +67,7 @@ export default function Dashboard() {
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-white rounded-lg shadow p-6">
           <div className="text-sm font-medium text-gray-600">Carbon Footprint</div>
           <div className="mt-2 text-3xl font-bold text-primary">
@@ -96,6 +96,18 @@ export default function Dashboard() {
           <div className="text-sm font-medium text-gray-600">Reports Generated</div>
           <div className="mt-2 text-3xl font-bold text-primary">{summary.reports_generated}</div>
           <div className="text-sm text-gray-500">sustainability reports</div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="text-sm font-medium text-gray-600">Rework Rate</div>
+          <div
+            className={`mt-2 text-3xl font-bold ${
+              (summary.rework_rate ?? 0) > 0.1 ? 'text-red-600' : 'text-primary'
+            }`}
+          >
+            {((summary.rework_rate ?? 0) * 100).toFixed(1)}%
+          </div>
+          <div className="text-sm text-gray-500">rework batches ÷ total</div>
         </div>
       </div>
 

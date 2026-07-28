@@ -41,3 +41,80 @@ RESTRICTED_CHEMICALS = [
 
 # Get list of restricted CAS numbers for quick lookup
 RESTRICTED_CAS_NUMBERS = {item["cas"] for item in RESTRICTED_CHEMICALS}
+
+
+# ---------------------------------------------------------------------------
+# Per-material emission factors used by Product / BOM rollups
+# ---------------------------------------------------------------------------
+#
+# Looked up by `BillOfMaterialsItem.material_key`. When the key isn't in the
+# table, the per-category fallback below is used. All values are kg CO2e per
+# kg of material. These are simplified industry averages (Higg MSI / PEF
+# textile method) — fine for a Tier-1 supplier compliance tool, not a full
+# LCA. A factory can override a single line with `carbon_factor_override`.
+MATERIAL_CARBON_FACTORS = {
+    # Fibers
+    "cotton": 5.5,
+    "organic_cotton": 3.8,
+    "polyester": 7.0,
+    "recycled_polyester": 3.5,
+    "blend": 6.2,
+    "elastane": 6.5,
+    "viscose": 4.5,
+    "wool": 12.0,
+    "linen": 2.8,
+    # Wet processing chemistry
+    "reactive_dye": 4.5,
+    "disperse_dye": 6.0,
+    "acid_dye": 5.0,
+    "sodium_carbonate": 0.6,
+    "glauber_salt": 0.3,
+    "caustic_soda": 1.1,
+    "softener": 2.0,
+    # Trims (small per-garment quantities, generic averages)
+    "button": 3.0,
+    "label": 2.5,
+    "zipper": 4.5,
+    "sewing_thread": 5.5,
+}
+
+# Per-category fallbacks used when material_key is unknown.
+MATERIAL_CATEGORY_FALLBACK_FACTORS = {
+    "fiber": 5.5,        # default to conventional cotton
+    "dye": 5.0,
+    "chemical": 1.5,
+    "trim": 3.5,
+}
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — batch input emission factors & per-process defaults
+# ---------------------------------------------------------------------------
+
+# kg CO2e per unit of each BatchInputType. Keyed by enum value. Same
+# provenance caveat as above: simplified industry averages, right tier for
+# an SME compliance tool.
+BATCH_INPUT_EMISSION_FACTORS = {
+    "water_l": 0.0003,        # treatment+supply, 0.3 kg CO2e per m³
+    "electricity_kwh": 0.85,  # India grid
+    "chemical_kg": 2.5,
+    "dye_kg": 2.5,
+    "steam_kg": 0.18,         # boiler fuel mix typical for Tiruppur units
+    "diesel_l": 2.68,         # genset backup power
+}
+
+# DEFAULT_FACTOR tier (§5 of the phase-2 spec): per-process consumption per
+# kg of fabric, used when a batch — typically an outsourced dye lot — has no
+# measured or bill-derived inputs at all. Values are conservative textbook
+# figures for South-Indian knitwear processing; anything computed from these
+# is tagged DataQuality.DEFAULT_FACTOR so reports never pass it off as
+# primary data.
+PROCESS_DEFAULT_INPUT_FACTORS = {
+    # process value -> { input_type value: quantity per kg fabric }
+    "knitting": {"electricity_kwh": 0.75},
+    "bleaching": {"water_l": 40.0, "electricity_kwh": 0.5, "chemical_kg": 0.3, "steam_kg": 1.0},
+    "dyeing": {"water_l": 100.0, "electricity_kwh": 1.0, "chemical_kg": 0.5, "dye_kg": 0.03, "steam_kg": 2.0},
+    "printing": {"water_l": 20.0, "electricity_kwh": 0.8, "dye_kg": 0.02},
+    "finishing": {"water_l": 15.0, "electricity_kwh": 0.6, "steam_kg": 1.5},
+    "cutting_sewing": {"electricity_kwh": 0.4},
+}

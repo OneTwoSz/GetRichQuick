@@ -7,6 +7,7 @@ from ..models import User, Factory, ProductionRecord, Chemical, Report
 from ..schemas import DashboardSummary, DashboardAlert
 from ..utils.auth import get_current_user
 from ..services.carbon_calculator import CarbonCalculator
+from ..services.batch_carbon import rework_rate
 from ..utils.constants import RESTRICTED_CAS_NUMBERS
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -114,10 +115,22 @@ async def get_dashboard_summary(
             message="No production data found for previous month. Consider generating a report."
         ))
 
+    # Rework rate (phase 2): rework batches ÷ total batches. Buyers read a
+    # high rate as both a cost and an emissions problem — surfacing it gives
+    # the factory a number to improve.
+    factory_rework_rate = rework_rate(db, factory.id)
+    if factory_rework_rate > 0.10:
+        alerts.append(DashboardAlert(
+            type="rework_rate",
+            severity="medium",
+            message=f"Rework rate is {factory_rework_rate * 100:.1f}% — re-dye runs roughly double water, energy and chemicals for the lot."
+        ))
+
     return DashboardSummary(
         carbon_footprint_this_month=carbon_this_month,
         water_usage_this_month=water_this_month,
         chemical_compliance_percentage=compliance_percentage,
         reports_generated=reports_count,
+        rework_rate=factory_rework_rate,
         alerts=alerts
     )

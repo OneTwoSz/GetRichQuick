@@ -1,6 +1,6 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { reportsAPI } from '@/services/api';
-import type { Report, ReportFormData, ReportType } from '@/types';
+import type { Report, ReportFormData } from '@/types';
 
 export default function Reports() {
   const [reports, setReports] = useState<Report[]>([]);

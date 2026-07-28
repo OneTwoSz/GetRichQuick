@@ -12,6 +12,7 @@ from ..utils.hashing import canonical_json, sha256_hex
 from ..services.report_generator import ReportGenerator
 from ..services.carbon_calculator import CarbonCalculator
 from ..services.signing_service import sign_report, SigningError
+from ..config import settings
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
@@ -91,6 +92,11 @@ async def generate_report(
             }
             for r in records
         ],
+        # Phase 2: the Allocation Statement is part of what the signature
+        # attests to — method per batch, shares, and the data-quality mix.
+        "allocation_statement": ReportGenerator.batch_allocation_data(
+            db, factory.id, report_data.date_from, report_data.date_to
+        ),
     }
     payload_hash = sha256_hex(canonical_json(payload))
 
@@ -174,13 +180,21 @@ async def download_report(
             detail="Report not found"
         )
 
-    # Get PDF file path
-    pdf_path = os.path.join("/app/reports", report.pdf_url)
+    # Get PDF file path. If the PDF doesn't exist (WeasyPrint missing in dev)
+    # fall back to the rendered HTML sibling so the report is still viewable.
+    pdf_path = os.path.join(settings.REPORTS_DIR, report.pdf_url)
 
     if not os.path.exists(pdf_path):
+        html_path = pdf_path[:-4] + ".html" if pdf_path.endswith(".pdf") else pdf_path
+        if os.path.exists(html_path):
+            return FileResponse(
+                html_path,
+                media_type="text/html",
+                filename=os.path.basename(html_path),
+            )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="PDF file not found"
+            detail="Report file not found"
         )
 
     return FileResponse(

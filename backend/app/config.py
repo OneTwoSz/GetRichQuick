@@ -31,8 +31,17 @@ class Settings(BaseSettings):
     # Public base URL (for verify links embedded in PDFs)
     PUBLIC_BASE_URL: str = "http://localhost:5173"
 
+    # Generated reports directory. Defaults to /app/reports (the Docker path)
+    # but can be overridden in dev to a path that exists on the host, e.g.
+    # ./reports — set REPORTS_DIR in .env when running outside Docker.
+    REPORTS_DIR: str = "/app/reports"
+
     class Config:
         env_file = ".env"
+        # Tolerate env vars that the backend doesn't consume (BACKEND_PORT,
+        # VITE_API_URL, POSTGRES_*) so the same .env can be shared across
+        # backend, frontend, and docker-compose without booting failing.
+        extra = "ignore"
 
 
 settings = Settings()

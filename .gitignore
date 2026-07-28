@@ -51,3 +51,11 @@ backend/reports/*.pdf
 # Database
 *.db
 *.sqlite
+*.db-journal
+
+# Python virtualenv (the dot-prefixed form `venv/` above does not catch)
+.venv/
+
+# Claude Code local tooling: machine-specific paths, local settings, and
+# worktrees that contain a full second copy of this project.
+.claude/

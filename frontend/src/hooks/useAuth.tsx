@@ -19,18 +19,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      authAPI
-        .getMe()
-        .then((user) => setUser(user))
-        .catch(() => {
+    const bootstrap = async () => {
+      let token = localStorage.getItem('token');
+
+      // Dev convenience: when running `npm run dev` we don't want to click
+      // through the login screen every reload. If no token is present and
+      // we're in a Vite dev build, silently log in as the demo user. The
+      // real auth flow stays intact — production builds (import.meta.env.DEV
+      // === false) skip this entirely.
+      if (!token && import.meta.env.DEV) {
+        try {
+          const resp = await authAPI.login({
+            email: 'demo@greenthread.app',
+            password: 'demo1234',
+          });
+          token = resp.access_token;
+          localStorage.setItem('token', token);
+          // eslint-disable-next-line no-console
+          console.info('[dev] auto-logged in as demo@greenthread.app');
+        } catch (err) {
+          // Probably means the backend isn't up or the demo user wasn't
+          // seeded. Fall through to the login screen so the dev sees why.
+          // eslint-disable-next-line no-console
+          console.warn('[dev] auto-login failed:', err);
+        }
+      }
+
+      if (token) {
+        try {
+          const me = await authAPI.getMe();
+          setUser(me);
+        } catch {
           localStorage.removeItem('token');
-        })
-        .finally(() => setLoading(false));
-    } else {
+        }
+      }
       setLoading(false);
-    }
+    };
+
+    bootstrap();
   }, []);
 
   const login = async (credentials: LoginCredentials) => {
