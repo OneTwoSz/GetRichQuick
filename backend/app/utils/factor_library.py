@@ -13,14 +13,27 @@ end of the four-tier hierarchy the life-cycle engine resolves through:
     4. FALLBACK       — category-level generic from this module → also
                         DEFAULT_FACTOR, plus a flag on the stage
 
-IMPORTANT — provenance of the values below: they are indicative midpoints
-of ranges published in open textile LCA literature, collected as the
-GreenThread reference set v1. They are the right order of magnitude for a
-supplier-side compliance tool and are always disclosed as DEFAULT_FACTOR,
-but they are NOT a licensed LCA dataset. Before a footprint is used in a
-public claim (PEF, French Ecoscore, marketing), swap in a licensed source
-(ecoinvent, Higg MSI, a supplier EPD) by adding factors with a proper
-`source` — the engine and the passport print whatever `source` says.
+Provenance of the values below (each Factor's `source` is printed on
+footprints and passports):
+
+  Published, verified (v2, Sep 2026):
+    - India grid: CEA CO2 Baseline Database v21.0 (Nov 2025), weighted
+      average incl. RE and cross-border transfers, FY2024-25 = 0.710
+      tCO2/MWh. Generation-side CO2, the figure Indian auditors and CCTS use.
+    - Other grids: Ember Yearly Electricity Data, lifecycle carbon
+      intensity of generation, 2025 (via Our World in Data). Note the basis
+      differs from CEA's (lifecycle vs. combustion CO2); for India, Ember's
+      2025 lifecycle value is 0.670 — CEA is kept as the official figure.
+    - Freight, diesel, water supply/treatment: UK Government GHG
+      Conversion Factors for Company Reporting 2025 (DESNZ), flat file.
+      Direct (tank-to-wheel) factors; well-to-tank is not included.
+
+  Still indicative (GreenThread reference set v1): fibres, spinning
+  losses, per-process default inputs, chemicals/dyes, steam, trims,
+  packaging, wash-load and end-of-life figures. These are literature-range
+  midpoints, always disclosed as DEFAULT_FACTOR, and NOT a licensed LCA
+  dataset. Replace them (Textile Exchange cotton LCA 2026, ecoinvent,
+  Higg MSI, supplier EPDs) before a footprint backs a public claim.
 """
 from dataclasses import dataclass
 from typing import Dict, Optional
@@ -38,12 +51,19 @@ class Factor:
     note: str = ""
 
 
-def _set(unit: str, rows: Dict[str, object], note: str = "") -> Dict[str, Factor]:
+CEA_2025 = "CEA CO2 Baseline Database v21.0 (FY2024-25)"
+EMBER_2025 = "Ember Yearly Electricity Data 2025 (lifecycle)"
+DESNZ_2025 = "UK Government GHG Conversion Factors 2025 (DESNZ)"
+
+
+def _set(unit: str, rows: Dict[str, object], note: str = "",
+         source: str = REFERENCE_SET) -> Dict[str, Factor]:
     """Build a factor table. Each row is either `co2e` or `(co2e, water_l)`."""
     out = {}
     for key, values in rows.items():
         co2e, water = values if isinstance(values, tuple) else (values, 0.0)
-        out[key] = Factor(key=key, co2e=co2e, unit=unit, water_l=water, note=note)
+        out[key] = Factor(key=key, co2e=co2e, unit=unit, water_l=water, note=note,
+                          source=source)
     return out
 
 
@@ -107,24 +127,34 @@ STAGE_DEFAULT_INPUTS: Dict[str, Dict[str, float]] = {
 }
 
 # kg CO2e per unit of non-electric inputs. Electricity is looked up per
-# country in GRID_FACTORS instead. Kept identical to the batch engine's
-# BATCH_INPUT_EMISSION_FACTORS so factory-primary and default stages agree.
+# country in GRID_FACTORS instead. utils/constants.py derives the batch
+# engine's BATCH_INPUT_EMISSION_FACTORS from these, so factory-primary and
+# default stages always use the same numbers.
 INPUT_FACTORS = {
-    "water_l": Factor("water_l", 0.0003, "L", 1.0, note="treatment + supply"),
+    # DESNZ 2025: water supply 0.19130 + water treatment 0.17088 kg CO2e/m³
+    # (UK averages — no Indian equivalent is published; borewell pumping
+    # energy is captured separately when it is on the factory's meter).
+    "water_l": Factor("water_l", (0.19130 + 0.17088) / 1000, "L", 1.0,
+                      source=DESNZ_2025, note="supply + treatment, per litre"),
     "chemical_kg": Factor("chemical_kg", 2.5, "kg"),
     "dye_kg": Factor("dye_kg", 2.5, "kg"),
     "steam_kg": Factor("steam_kg", 0.18, "kg", note="boiler fuel mix, Tiruppur-typical"),
-    "diesel_l": Factor("diesel_l", 2.68, "L", note="genset"),
+    # DESNZ 2025: diesel (100% mineral), 2.66155 kg CO2e/litre. Indian HSD
+    # carries negligible biodiesel, so the mineral figure applies.
+    "diesel_l": Factor("diesel_l", 2.66155, "L", source=DESNZ_2025, note="genset"),
 }
 
-# kg CO2e per kWh, by ISO-3166 alpha-2 country. "IN" is kept at the
-# conservative 0.85 the rest of the app uses so batch-level and life-cycle
-# numbers reconcile.
-GRID_FACTORS = _set("kWh", {
-    "IN": 0.85, "BD": 0.62, "CN": 0.58, "VN": 0.60, "PK": 0.45, "LK": 0.55,
-    "ID": 0.75, "TR": 0.45, "KH": 0.60, "EG": 0.45, "PT": 0.20, "IT": 0.30,
-    "DE": 0.38, "FR": 0.06, "GB": 0.20, "US": 0.37, "EU": 0.25,
-}, note="grid average")
+# kg CO2e per kWh, by ISO-3166 alpha-2 country ("EU" = EU-27 average).
+GRID_FACTORS = {
+    "IN": Factor("IN", 0.710, "kWh", source=CEA_2025,
+                 note="weighted average incl. RE and cross-border transfers"),
+    **_set("kWh", {
+        "BD": 0.696, "CN": 0.525, "VN": 0.461, "PK": 0.347, "LK": 0.329,
+        "ID": 0.680, "TR": 0.475, "KH": 0.499, "EG": 0.563, "MM": 0.503,
+        "TH": 0.546, "MA": 0.596, "TN": 0.560, "PT": 0.128, "IT": 0.285,
+        "DE": 0.330, "FR": 0.041, "GB": 0.217, "US": 0.384, "EU": 0.210,
+    }, note="lifecycle carbon intensity of generation", source=EMBER_2025),
+}
 DEFAULT_COUNTRY = "IN"
 
 
@@ -151,9 +181,12 @@ PACKAGING_FACTORS = _set("kg", {
 # ---------------------------------------------------------------------------
 # Stage 7 — distribution, per tonne-km.
 # ---------------------------------------------------------------------------
+# DESNZ 2025 freighting goods: HGV (all diesel) average laden; rail
+# freight train; container ship average; international air freight
+# including radiative forcing (DESNZ's recommended basis for aviation).
 TRANSPORT_FACTORS = _set("tkm", {
-    "truck": 0.105, "rail": 0.025, "sea_freight": 0.016, "air": 0.60,
-})
+    "truck": 0.10163, "rail": 0.02779, "sea_freight": 0.01612, "air": 0.89939,
+}, source=DESNZ_2025)
 
 
 # ---------------------------------------------------------------------------

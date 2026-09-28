@@ -1,0 +1,315 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Sustainability Report</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 2cm;
+        }
+        body {
+            font-family: 'Arial', sans-serif;
+            color: #333;
+            line-height: 1.6;
+        }
+        .header {
+            text-align: center;
+            border-bottom: 3px solid #0D9488;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            color: #0D9488;
+            margin: 0;
+            font-size: 28px;
+        }
+        .header p {
+            color: #666;
+            margin: 5px 0;
+        }
+        .section {
+            margin-bottom: 25px;
+        }
+        .section-title {
+            background-color: #0D9488;
+            color: white;
+            padding: 10px;
+            font-size: 18px;
+            margin-bottom: 15px;
+        }
+        .metric-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .metric-box {
+            border: 1px solid #ddd;
+            padding: 15px;
+            background-color: #f9f9f9;
+        }
+        .metric-label {
+            color: #666;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #0D9488;
+        }
+        .metric-unit {
+            font-size: 14px;
+            color: #666;
+        }
+        .breakdown-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        .breakdown-table th,
+        .breakdown-table td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .breakdown-table th {
+            background-color: #f0f0f0;
+            font-weight: bold;
+        }
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 2px solid #ddd;
+            text-align: center;
+            color: #666;
+            font-size: 12px;
+        }
+        .alert {
+            background-color: #FEF2F2;
+            border-left: 4px solid #EF4444;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .success {
+            background-color: #F0FDF4;
+            border-left: 4px solid #10B981;
+            padding: 10px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Sustainability Data Report</h1>
+        <p><strong>Saravana Knits Pvt Ltd</strong></p>
+        <p>Tiruppur, Tamil Nadu</p>
+        <p>Period: 08 September 2026 to 24 September 2026</p>
+        <p>Generated: 28 September 2026</p>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Carbon Footprint Summary</div>
+        <div class="metric-grid">
+            <div class="metric-box">
+                <div class="metric-label">Total Carbon Footprint</div>
+                <div class="metric-value">22,413.55 <span class="metric-unit">kg CO₂e</span></div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-label">Carbon per Garment</div>
+                <div class="metric-value">2.215 <span class="metric-unit">kg CO₂e</span></div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-label">Total Garments Produced</div>
+                <div class="metric-value">10,118</div>
+            </div>
+        </div>
+
+        <h3>Emissions Breakdown</h3>
+        <table class="breakdown-table">
+            <tr>
+                <th>Category</th>
+                <th>Emissions (kg CO₂e)</th>
+            </tr>
+            <tr>
+                <td>Materials (Fabric)</td>
+                <td>15,087.22</td>
+            </tr>
+            <tr>
+                <td>Energy (Electricity)</td>
+                <td>6,739.43</td>
+            </tr>
+            <tr>
+                <td>Water Treatment</td>
+                <td>58.53</td>
+            </tr>
+            <tr>
+                <td>Chemicals & Dyes</td>
+                <td>507.37</td>
+            </tr>
+            <tr>
+                <td>Transportation</td>
+                <td>21.00</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Water & Energy Usage</div>
+        <div class="metric-grid">
+            <div class="metric-box">
+                <div class="metric-label">Total Water Consumption</div>
+                <div class="metric-value">216,253.27 <span class="metric-unit">liters</span></div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-label">Water per Garment</div>
+                <div class="metric-value">21.37 <span class="metric-unit">liters</span></div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-label">Total Electricity</div>
+                <div class="metric-value">7,928.74 <span class="metric-unit">kWh</span></div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-label">Electricity per Garment</div>
+                <div class="metric-value">0.784 <span class="metric-unit">kWh</span></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Chemical Compliance Status</div>
+        
+        <div class="success">
+            <strong>✓ Good Compliance:</strong> 5 out of 6 chemicals are REACH & ZDHC compliant (83.3%)
+        </div>
+        
+
+        
+    </div>
+
+    
+    <div class="section">
+        <div class="section-title">Batch Production & Rework</div>
+        <div class="metric-grid">
+            <div class="metric-box">
+                <div class="metric-label">Rework Rate (rework batches ÷ total)</div>
+                <div class="metric-value">33.3 <span class="metric-unit">%</span></div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-label">Overall Data Quality (share of footprint)</div>
+                <div class="metric-value" style="font-size: 16px;">
+                    43.52% measured ·
+                    56.48% estimated ·
+                    0.0% default factors
+                </div>
+            </div>
+        </div>
+        <p style="font-size: 12px; color: #666;">
+            Rework runs (re-dyeing, re-processing) are recorded as separate batches and their
+            consumption is added to the affected orders — footprints reflect what actually happened.
+        </p>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Allocation Statement</div>
+        <p style="font-size: 12px; color: #666;">
+            Shared production batches are split across orders following the ISO 14044 hierarchy
+            (subdivision first, then physical/mass allocation; unit or economic allocation only where
+            noted). Shares are fixed at allocation time and preserved in the audit trail.
+        </p>
+        
+        
+        <h3 style="margin-bottom: 4px;">Order PO-2026-101 — C&A Germany</h3>
+        <p style="font-size: 12px; margin-top: 0;">
+            3000 units · 2739.8 kg CO₂e ·
+            94944 L water ·
+            data quality: 43.52% measured,
+            56.48% estimated,
+            0.0% default factors
+        </p>
+        <table class="breakdown-table">
+            <tr>
+                <th>Batch</th>
+                <th>Process</th>
+                <th>Method</th>
+                <th>Share</th>
+                <th>kg CO₂e</th>
+                <th>Notes</th>
+            </tr>
+            
+            <tr>
+                <td>LOT-2026-0701-WHT</td>
+                <td>dyeing</td>
+                <td>mass</td>
+                <td>53.7%</td>
+                <td>2131.82</td>
+                <td>Combined white run for PO-101 + PO-102 (same fabric, one dye bath).</td>
+            </tr>
+            
+            <tr>
+                <td>LOT-2026-0701-WHT-RW1</td>
+                <td>dyeing</td>
+                <td>mass</td>
+                <td>53.7%</td>
+                <td>356.34</td>
+                <td>rework Shade mismatch on ~20% of the lot; re-dyed.</td>
+            </tr>
+            
+        </table>
+        
+        <h3 style="margin-bottom: 4px;">Order PO-2026-102 — Armedangels</h3>
+        <p style="font-size: 12px; margin-top: 0;">
+            2000 units · 2212.6 kg CO₂e ·
+            76673 L water ·
+            data quality: 43.52% measured,
+            56.48% estimated,
+            0.0% default factors
+        </p>
+        <table class="breakdown-table">
+            <tr>
+                <th>Batch</th>
+                <th>Process</th>
+                <th>Method</th>
+                <th>Share</th>
+                <th>kg CO₂e</th>
+                <th>Notes</th>
+            </tr>
+            
+            <tr>
+                <td>LOT-2026-0701-WHT</td>
+                <td>dyeing</td>
+                <td>mass</td>
+                <td>43.4%</td>
+                <td>1721.56</td>
+                <td>Combined white run for PO-101 + PO-102 (same fabric, one dye bath).</td>
+            </tr>
+            
+            <tr>
+                <td>LOT-2026-0701-WHT-RW1</td>
+                <td>dyeing</td>
+                <td>mass</td>
+                <td>43.4%</td>
+                <td>287.76</td>
+                <td>rework Shade mismatch on ~20% of the lot; re-dyed.</td>
+            </tr>
+            
+        </table>
+        
+    </div>
+    
+
+    <div class="section">
+        <div class="section-title">Data Traceability & Audit Trail</div>
+        <p>All data in this report is sourced from production records logged in the GreenThread platform. Every data entry and modification is tracked in an immutable audit log, ensuring full traceability and compliance readiness.</p>
+        <p>This report can be shared with EU buyers to demonstrate compliance with CSRD requirements and Digital Product Passport regulations.</p>
+    </div>
+
+    <div class="footer">
+        <p><strong>Data generated by GreenThread</strong> — Audit-ready, traceable sustainability data management</p>
+        <p>www.greenthread.io | support@greenthread.io</p>
+    </div>
+</body>
+</html>
+        

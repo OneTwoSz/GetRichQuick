@@ -9,6 +9,9 @@ from app.models import DataQuality
 from app.services import lifecycle as lc
 from app.utils import factor_library as fl
 
+IN_GRID = fl.GRID_FACTORS["IN"].co2e
+WATER = fl.INPUT_FACTORS["water_l"].co2e
+
 
 def _tee(**extra):
     """200 g, 100% conventional cotton tee with 20% cutting waste."""
@@ -40,8 +43,8 @@ def test_all_default_cradle_to_gate():
     assert r.quality_mix["default_factor"] == pytest.approx(100)
     fibre_kg = 0.25 / 0.98 / 0.88
     assert _stage(r, "raw_materials").co2e_kg == pytest.approx(fibre_kg * 2.0, rel=1e-4)
-    # Spinning default: 3.5 kWh/kg yarn at the Indian grid factor.
-    assert _stage(r, "yarn_production").co2e_kg == pytest.approx(0.25 / 0.98 * 3.5 * 0.85, rel=1e-4)
+    # Spinning default: 3.5 kWh/kg yarn at the Indian (CEA) grid factor.
+    assert _stage(r, "yarn_production").co2e_kg == pytest.approx(0.25 / 0.98 * 3.5 * IN_GRID, rel=1e-4)
     assert r.co2e_kg == pytest.approx(sum(s.co2e_kg for s in r.stages), abs=1e-3)
 
 
@@ -68,8 +71,8 @@ def test_supplier_intensity_uses_supplier_country_grid():
     india, bangladesh = yarn("IN"), yarn("BD")
     assert india.data_source == "supplier_primary"
     assert india.country == "IN"
-    assert india.co2e_kg == pytest.approx(0.25 / 0.98 * 3.0 * 0.85, rel=1e-4)
-    assert bangladesh.co2e_kg == pytest.approx(0.25 / 0.98 * 3.0 * 0.62, rel=1e-4)
+    assert india.co2e_kg == pytest.approx(0.25 / 0.98 * 3.0 * IN_GRID, rel=1e-4)
+    assert bangladesh.co2e_kg == pytest.approx(0.25 / 0.98 * 3.0 * fl.GRID_FACTORS['BD'].co2e, rel=1e-4)
 
 
 def test_factory_batches_on_default_factors_are_not_primary():
@@ -112,8 +115,9 @@ def test_no_fibre_lines_still_charges_raw_materials():
 def test_distribution_per_tonne_km():
     r = lc.compute(_tee(boundary="cradle_to_customer",
                         distribution=[lc.TransportLeg("sea_freight", 10_000)]))
-    # 0.2 kg garment, no packaging: 0.0002 t × 10,000 km × 0.016
-    assert _stage(r, "distribution").co2e_kg == pytest.approx(0.032)
+    # 0.2 kg garment, no packaging: 0.0002 t × 10,000 km × container-ship factor
+    assert _stage(r, "distribution").co2e_kg == pytest.approx(
+        0.0002 * 10_000 * fl.TRANSPORT_FACTORS["sea_freight"].co2e)
 
 
 def test_cradle_to_grave_use_and_end_of_life():
@@ -121,7 +125,7 @@ def test_cradle_to_grave_use_and_end_of_life():
     use = _stage(r, "use")
     loads = 50 * 0.2 / 4.0
     assert use.energy_kwh == pytest.approx(loads * 0.5)
-    assert use.co2e_kg == pytest.approx(loads * 0.5 * 0.25 + loads * 50 * 0.0003, rel=1e-4)
+    assert use.co2e_kg == pytest.approx(loads * 0.5 * fl.GRID_FACTORS['EU'].co2e + loads * 50 * WATER, rel=1e-4)
     assert _stage(r, "end_of_life").co2e_kg == pytest.approx(0.2 * 0.8)
     assert r.excluded_stages == []
 
@@ -143,6 +147,26 @@ def test_rejects_bad_inputs():
         lc.compute(_tee(boundary="cradle_to_moon"))
     with pytest.raises(ValueError):
         lc.compute(lc.LifecycleInputs(garment_weight_g=0))
+
+
+def test_published_factors_match_their_sources():
+    """Values copied from official publications — changing one should be a
+    deliberate update to a newer edition, with the source label updated."""
+    assert fl.GRID_FACTORS["IN"].co2e == 0.710
+    assert fl.GRID_FACTORS["IN"].source == fl.CEA_2025
+    assert fl.GRID_FACTORS["BD"].co2e == 0.696
+    assert fl.GRID_FACTORS["EU"].source == fl.EMBER_2025
+    assert fl.TRANSPORT_FACTORS["truck"].co2e == 0.10163
+    assert fl.TRANSPORT_FACTORS["sea_freight"].co2e == 0.01612
+    assert fl.TRANSPORT_FACTORS["air"].co2e == 0.89939
+    assert fl.INPUT_FACTORS["diesel_l"].co2e == 2.66155
+    assert fl.INPUT_FACTORS["water_l"].co2e == pytest.approx(0.36218 / 1000)
+    assert all(f.source == fl.DESNZ_2025 for f in fl.TRANSPORT_FACTORS.values())
+
+
+def test_stages_cite_emission_factor_sources():
+    r = lc.compute(_tee())
+    assert any(fl.CEA_2025 in s for s in _stage(r, "yarn_production").sources)
 
 
 def test_factor_library_carries_provenance():

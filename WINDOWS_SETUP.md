@@ -137,9 +137,12 @@ published Digital Product Passport:
 - Public pages (no login): `/passport/<token>` and, for suppliers,
   `/supplier-data/demo-supplier-token`.
 
-The default emission factors (`backend/app/utils/factor_library.py`) are
-indicative literature midpoints and are always disclosed as "Default
-factor". Swap in a licensed dataset (ecoinvent, Higg MSI, supplier EPDs)
+Emission factors live in `backend/app/utils/factor_library.py`, each with
+its source. Grid electricity (CEA v21.0 for India, Ember 2025 elsewhere),
+freight, diesel and water (UK Government GHG Conversion Factors 2025) come
+from official publications. Fibres, per-process defaults, chemicals, steam,
+trims, packaging and use/end-of-life are still indicative — swap in a
+licensed dataset (Textile Exchange, ecoinvent, Higg MSI, supplier EPDs)
 before using footprints in public claims.
 
 An existing `greenthread.db` keeps working — the new tables are created on

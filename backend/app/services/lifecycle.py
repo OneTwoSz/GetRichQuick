@@ -211,14 +211,18 @@ def _apply_inputs(acc: _StageAccumulator, inputs: Dict[str, float], scale_kg: fl
     for input_type, per_kg in inputs.items():
         qty = per_kg * scale_kg
         if input_type == "electricity_kwh":
-            g = fl.grid_factor(country)
-            acc.add(qty * g.co2e, quality, kind, source, energy=qty)
+            f = fl.grid_factor(country)
+            acc.add(qty * f.co2e, quality, kind, source, energy=qty)
         else:
             f = fl.INPUT_FACTORS.get(input_type)
             if f is None:
                 acc.flags.append(f"unknown_input:{input_type}")
                 continue
             acc.add(qty * f.co2e, quality, kind, source, water=qty * f.water_l)
+        # Cite the emission factor's source next to the activity data's.
+        factor_ref = f"{input_type.split('_')[0]} factor: {f.source}"
+        if factor_ref not in acc.sources:
+            acc.sources.append(factor_ref)
 
 
 def mass_flow(inputs: LifecycleInputs) -> Dict[str, float]:

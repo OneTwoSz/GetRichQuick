@@ -8,6 +8,10 @@ import pytest
 from app.database import get_db
 from app.main import app
 from app.models import PassportVersion
+from app.utils import factor_library as fl
+
+IN_GRID = fl.GRID_FACTORS["IN"].co2e
+WATER = fl.INPUT_FACTORS["water_l"].co2e
 
 
 def _product(client, sku="TEE-LC", weight=200, waste=20, bom=None):
@@ -55,8 +59,8 @@ def test_footprint_uses_factory_batches_for_wet_processing(client):
 
     wet = _stage(fp, "wet_processing")
     assert wet["data_source"] == "factory_primary"
-    # 250 kWh × 0.85 + 20,000 L × 0.0003 over 1,000 garments
-    assert wet["co2e_kg"] == pytest.approx((250 * 0.85 + 20000 * 0.0003) / 1000, rel=1e-3)
+    # 250 kWh + 20,000 L at the library factors, over 1,000 garments
+    assert wet["co2e_kg"] == pytest.approx((250 * IN_GRID + 20000 * WATER) / 1000, rel=1e-3)
     assert wet["water_l"] == pytest.approx(20.0)
     assert wet["quality_mix"]["measured"] == pytest.approx(100)
     assert _stage(fp, "fabric_production")["data_source"] == "default"
@@ -95,7 +99,7 @@ def test_supplier_data_link_upgrades_yarn_stage(client):
     after = _stage(client.get(f"/api/products/{pid}/footprint").json(), "yarn_production")
     assert after["data_source"] == "supplier_primary"
     assert after["quality_mix"]["measured"] == pytest.approx(100)
-    assert after["co2e_kg"] == pytest.approx(0.25 / 0.98 * 3.0 * 0.85, rel=1e-3)
+    assert after["co2e_kg"] == pytest.approx(0.25 / 0.98 * 3.0 * IN_GRID, rel=1e-3)
     assert client.get(f"/api/supplier-data/{req['token']}").json()["already_submitted"]
 
 

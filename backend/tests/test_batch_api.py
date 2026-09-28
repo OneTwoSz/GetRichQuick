@@ -6,6 +6,11 @@ monthly reconciliation, share link).
 """
 import pytest
 
+from app.utils.constants import BATCH_INPUT_EMISSION_FACTORS as F
+
+# The 1,000 kg lot used below: 10,000 L water + 1,000 kWh.
+BATCH_CO2 = 10_000 * F["water_l"] + 1_000 * F["electricity_kwh"]
+
 
 def _make_product(client, sku, weight_g, waste_pct):
     r = client.post("/api/products", json={
@@ -76,8 +81,8 @@ def test_full_batch_allocation_footprint_and_inventory(client):
     item = inventory[0]
     assert item["fabric_kg"] == pytest.approx(50)
     assert item["embodied_water_l"] == pytest.approx(500)
-    # 5% of total CO2: water 10,000×0.0003 + power 1,000×0.85 = 853 kg → 42.65
-    assert item["embodied_co2_kg"] == pytest.approx(853 * 0.05)
+    # 5% of total CO2: water 10,000 L + power 1,000 kWh at the batch factors
+    assert item["embodied_co2_kg"] == pytest.approx(BATCH_CO2 * 0.05)
 
     # Order totals unchanged by the leftover.
     fp_after = client.get(f"/api/orders/{order_a['id']}/footprint").json()
@@ -89,7 +94,7 @@ def test_full_batch_allocation_footprint_and_inventory(client):
     assert r.status_code == 200
     fp_c = client.get(f"/api/orders/{order_c['id']}/footprint").json()
     assert fp_c["embodied_water_l"] == pytest.approx(500)
-    assert fp_c["embodied_co2_kg"] == pytest.approx(853 * 0.05)
+    assert fp_c["embodied_co2_kg"] == pytest.approx(BATCH_CO2 * 0.05)
 
 
 def test_rework_batch_adds_pro_rata(client):
@@ -200,7 +205,7 @@ def test_monthly_reconciliation_overhead(client):
 
     # The order footprint includes its overhead slice as ESTIMATED data.
     fp = client.get(f"/api/orders/{order_a['id']}/footprint").json()
-    assert fp["overhead_co2_kg"] == pytest.approx(1800 * 0.85, rel=1e-3)
+    assert fp["overhead_co2_kg"] == pytest.approx(1800 * F["electricity_kwh"], rel=1e-3)
     assert fp["quality_mix"]["estimated"] > 0
 
 

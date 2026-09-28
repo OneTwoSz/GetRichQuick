@@ -2,6 +2,7 @@
 Emission factors for carbon footprint calculation
 All values in kg CO2 equivalent
 """
+from .factor_library import GRID_FACTORS, INPUT_FACTORS
 
 # Fabric emission factors (kg CO2 per kg of fabric)
 FABRIC_EMISSION_FACTORS = {
@@ -12,8 +13,8 @@ FABRIC_EMISSION_FACTORS = {
 }
 
 # Other emission factors
-ELECTRICITY_EMISSION_FACTOR = 0.85  # kg CO2 per kWh (India grid)
-WATER_TREATMENT_EMISSION_FACTOR = 0.3  # kg CO2 per 1000 liters
+ELECTRICITY_EMISSION_FACTOR = GRID_FACTORS["IN"].co2e  # kg CO2 per kWh (CEA, India grid)
+WATER_TREATMENT_EMISSION_FACTOR = 0.17088  # kg CO2e per 1000 L (DESNZ 2025 water treatment)
 DYE_CHEMICAL_EMISSION_FACTOR = 2.5  # kg CO2 per kg
 
 # Transport emission factors (kg CO2 per km)
@@ -91,16 +92,12 @@ MATERIAL_CATEGORY_FALLBACK_FACTORS = {
 # Phase 2 — batch input emission factors & per-process defaults
 # ---------------------------------------------------------------------------
 
-# kg CO2e per unit of each BatchInputType. Keyed by enum value. Same
-# provenance caveat as above: simplified industry averages, right tier for
-# an SME compliance tool.
+# kg CO2e per unit of each BatchInputType. Keyed by enum value. Derived
+# from the factor library (see its docstring for sources) so batch-level
+# order footprints and product life-cycle footprints use identical numbers.
 BATCH_INPUT_EMISSION_FACTORS = {
-    "water_l": 0.0003,        # treatment+supply, 0.3 kg CO2e per m³
-    "electricity_kwh": 0.85,  # India grid
-    "chemical_kg": 2.5,
-    "dye_kg": 2.5,
-    "steam_kg": 0.18,         # boiler fuel mix typical for Tiruppur units
-    "diesel_l": 2.68,         # genset backup power
+    "electricity_kwh": GRID_FACTORS["IN"].co2e,  # CEA India grid
+    **{key: f.co2e for key, f in INPUT_FACTORS.items()},
 }
 
 # DEFAULT_FACTOR tier (§5 of the phase-2 spec): per-process consumption per
