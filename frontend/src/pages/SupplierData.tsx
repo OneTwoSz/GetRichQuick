@@ -1,3 +1,4 @@
+import Logo from '@/components/Logo';
 import { FormEvent, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { publicAPI } from '@/services/api';
@@ -81,7 +82,7 @@ export default function SupplierData() {
   return (
     <div className="min-h-screen bg-gray-50 px-4 py-6">
       <div className="max-w-md mx-auto space-y-4">
-        <h1 className="text-xl font-bold text-primary text-center">GreenThread</h1>
+        <div className="flex justify-center py-2"><Logo /></div>
 
         {state === 'loading' && <div className="text-center text-gray-500">Loading…</div>}
         {state === 'error' && (

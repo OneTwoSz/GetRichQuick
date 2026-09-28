@@ -2,6 +2,19 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { dashboardAPI, factoryAPI } from '@/services/api';
 import type { DashboardSummary } from '@/types';
+import {
+  AlertTriangle,
+  ArrowRight,
+  ClipboardList,
+  Droplets,
+  FileText,
+  Factory,
+  Info,
+  RefreshCcw,
+  ShieldCheck,
+  Zap,
+} from 'lucide-react';
+import { Card, PageHeader, Spinner, StatTile } from '@/components/ui';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -35,151 +48,131 @@ export default function Dashboard() {
   };
 
   if (loading) {
-    return <div className="text-center py-12">Loading dashboard...</div>;
+    return <Spinner label="Loading dashboard" />;
   }
 
   if (error) {
-    return <div className="text-red-600 text-center py-12">{error}</div>;
+    return <div className="py-12 text-center text-red-600">{error}</div>;
   }
 
   if (!summary) {
     return null;
   }
 
-  const getSeverityColor = (severity: string) => {
-    switch (severity) {
-      case 'high':
-        return 'bg-red-50 border-red-200 text-red-800';
-      case 'medium':
-        return 'bg-yellow-50 border-yellow-200 text-yellow-800';
-      case 'low':
-        return 'bg-blue-50 border-blue-200 text-blue-800';
-      default:
-        return 'bg-gray-50 border-gray-200 text-gray-800';
-    }
-  };
+  const SEVERITY = {
+    high: { style: 'border-red-200 bg-red-50 text-red-800', Icon: AlertTriangle },
+    medium: { style: 'border-amber-200 bg-amber-50 text-amber-800', Icon: Zap },
+    low: { style: 'border-blue-200 bg-blue-50 text-blue-800', Icon: Info },
+  } as const;
+
+  const rework = (summary.rework_rate ?? 0) * 100;
+  const actions = [
+    { label: 'Log production data', hint: 'Batches, inputs and bills', path: '/production', Icon: ClipboardList },
+    { label: 'Generate report', hint: 'Signed and verifiable', path: '/reports', Icon: FileText },
+    { label: 'Manage chemicals', hint: 'REACH and ZDHC status', path: '/compliance', Icon: ShieldCheck },
+  ];
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-        <p className="mt-1 text-sm text-gray-600">Overview of your sustainability metrics</p>
+      <PageHeader title="Dashboard" description="This month's sustainability performance at a glance" />
+
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-5">
+        <StatTile
+          label="Carbon"
+          value={summary.carbon_footprint_this_month.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          unit="kg CO₂e"
+          hint="This month"
+          Icon={Factory}
+        />
+        <StatTile
+          label="Water"
+          value={(summary.water_usage_this_month / 1000).toFixed(1)}
+          unit="kL"
+          hint="This month"
+          Icon={Droplets}
+          tone="blue"
+        />
+        <StatTile
+          label="Compliance"
+          value={`${summary.chemical_compliance_percentage.toFixed(0)}%`}
+          hint="Chemicals REACH and ZDHC"
+          Icon={ShieldCheck}
+          tone={summary.chemical_compliance_percentage < 100 ? 'amber' : 'primary'}
+        />
+        <StatTile
+          label="Reports"
+          value={String(summary.reports_generated)}
+          hint="Signed sustainability reports"
+          Icon={FileText}
+          tone="gray"
+        />
+        <StatTile
+          label="Rework"
+          value={`${rework.toFixed(1)}%`}
+          hint="Rework batches ÷ total"
+          Icon={RefreshCcw}
+          tone={rework > 10 ? 'accent' : 'primary'}
+          alert={rework > 10}
+        />
       </div>
 
-      {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="text-sm font-medium text-gray-600">Carbon Footprint</div>
-          <div className="mt-2 text-3xl font-bold text-primary">
-            {summary.carbon_footprint_this_month.toFixed(2)}
-          </div>
-          <div className="text-sm text-gray-500">kg CO₂e this month</div>
-        </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Card
+          title="Alerts and actions"
+          description={summary.alerts.length ? `${summary.alerts.length} item(s) need attention` : 'Nothing needs attention'}
+          className="lg:col-span-2"
+        >
+          {summary.alerts.length === 0 ? (
+            <p className="text-sm text-gray-500">All clear — no compliance or data issues this month.</p>
+          ) : (
+            <ul className="space-y-2.5">
+              {summary.alerts.map((alert, index) => {
+                const sev = SEVERITY[alert.severity as keyof typeof SEVERITY] ?? SEVERITY.low;
+                return (
+                  <li key={index} className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${sev.style}`}>
+                    <sev.Icon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                    <span className="font-medium">{alert.message}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Card>
 
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="text-sm font-medium text-gray-600">Water Usage</div>
-          <div className="mt-2 text-3xl font-bold text-primary">
-            {(summary.water_usage_this_month / 1000).toFixed(1)}
+        <Card title="Quick actions">
+          <div className="space-y-2">
+            {actions.map(({ label, hint, path, Icon }) => (
+              <button
+                key={path}
+                onClick={() => navigate(path)}
+                className="group flex w-full items-center gap-3 rounded-lg border border-gray-200 px-3 py-3 text-left transition-colors hover:border-primary/40 hover:bg-primary-50"
+              >
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 text-gray-600 group-hover:bg-primary group-hover:text-white">
+                  <Icon className="h-4 w-4" aria-hidden />
+                </span>
+                <span className="flex-1">
+                  <span className="block text-sm font-medium text-gray-900">{label}</span>
+                  <span className="block text-xs text-gray-500">{hint}</span>
+                </span>
+                <ArrowRight className="h-4 w-4 text-gray-300 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+              </button>
+            ))}
           </div>
-          <div className="text-sm text-gray-500">thousand liters this month</div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="text-sm font-medium text-gray-600">Chemical Compliance</div>
-          <div className="mt-2 text-3xl font-bold text-primary">
-            {summary.chemical_compliance_percentage.toFixed(0)}%
-          </div>
-          <div className="text-sm text-gray-500">REACH & ZDHC compliant</div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="text-sm font-medium text-gray-600">Reports Generated</div>
-          <div className="mt-2 text-3xl font-bold text-primary">{summary.reports_generated}</div>
-          <div className="text-sm text-gray-500">sustainability reports</div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="text-sm font-medium text-gray-600">Rework Rate</div>
-          <div
-            className={`mt-2 text-3xl font-bold ${
-              (summary.rework_rate ?? 0) > 0.1 ? 'text-red-600' : 'text-primary'
-            }`}
-          >
-            {((summary.rework_rate ?? 0) * 100).toFixed(1)}%
-          </div>
-          <div className="text-sm text-gray-500">rework batches ÷ total</div>
-        </div>
+        </Card>
       </div>
 
-      {/* Alerts */}
-      {summary.alerts.length > 0 && (
-        <div className="bg-white rounded-lg shadow">
-          <div className="p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Alerts & Actions</h2>
-            <div className="space-y-3">
-              {summary.alerts.map((alert, index) => (
-                <div
-                  key={index}
-                  className={`border rounded-lg p-4 ${getSeverityColor(alert.severity)}`}
-                >
-                  <div className="flex items-start">
-                    <span className="text-lg mr-3">
-                      {alert.severity === 'high' ? '⚠️' : alert.severity === 'medium' ? '⚡' : 'ℹ️'}
-                    </span>
-                    <div>
-                      <div className="font-medium">{alert.message}</div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Quick Actions */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <button
-              onClick={() => navigate('/production')}
-              className="flex items-center justify-center px-4 py-3 bg-primary text-white rounded-lg hover:bg-primary-600 transition-colors"
-            >
-              <span className="mr-2">📝</span>
-              Log Production Data
-            </button>
-            <button
-              onClick={() => navigate('/reports')}
-              className="flex items-center justify-center px-4 py-3 bg-primary text-white rounded-lg hover:bg-primary-600 transition-colors"
-            >
-              <span className="mr-2">📄</span>
-              Generate Report
-            </button>
-            <button
-              onClick={() => navigate('/compliance')}
-              className="flex items-center justify-center px-4 py-3 bg-primary text-white rounded-lg hover:bg-primary-600 transition-colors"
-            >
-              <span className="mr-2">✓</span>
-              Manage Chemicals
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Empty State Guidance */}
       {summary.carbon_footprint_this_month === 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-blue-900 mb-2">Get Started</h3>
-          <p className="text-blue-800 mb-4">
-            No production data logged for this month yet. Start by logging your first production
-            batch to see your sustainability metrics.
+        <div className="rounded-xl border border-primary-200 bg-primary-50 p-6">
+          <h3 className="text-base font-semibold text-primary-900">Get started</h3>
+          <p className="mt-1 text-sm text-primary-800">
+            No production data logged for this month yet. Log your first batch to see your sustainability
+            metrics.
           </p>
           <button
             onClick={() => navigate('/production')}
-            className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-600"
+            className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-600"
           >
-            Log Your First Batch
+            Log your first batch
           </button>
         </div>
       )}

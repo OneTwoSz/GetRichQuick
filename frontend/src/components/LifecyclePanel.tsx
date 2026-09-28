@@ -364,7 +364,7 @@ function SettingsEditor({
       <button
         onClick={save}
         disabled={saving}
-        className="bg-primary text-white px-4 py-2 rounded-lg text-sm hover:bg-primary/90 disabled:opacity-50"
+        className="shrink-0 whitespace-nowrap bg-primary text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-primary/90 disabled:opacity-50"
       >
         {saving ? 'Saving…' : 'Save settings'}
       </button>

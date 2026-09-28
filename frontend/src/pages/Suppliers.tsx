@@ -75,14 +75,14 @@ export default function Suppliers() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-bold">Suppliers</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900 sm:text-[28px]">Suppliers</h1>
           <p className="text-sm text-gray-600">
             Your upstream supply chain — fibre to fabric. Link them to products to trace each stage.
           </p>
         </div>
         <button
           onClick={() => setShowForm((s) => !s)}
-          className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary/90"
+          className="shrink-0 whitespace-nowrap bg-primary text-white px-4 py-2 rounded-lg font-medium hover:bg-primary/90"
         >
           {showForm ? 'Cancel' : '+ Add supplier'}
         </button>
@@ -153,7 +153,7 @@ export default function Suppliers() {
           </label>
           {error && <div className="text-sm text-red-600 sm:col-span-2">{error}</div>}
           <div className="sm:col-span-2">
-            <button className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary/90">
+            <button className="shrink-0 whitespace-nowrap bg-primary text-white px-4 py-2 rounded-lg font-medium hover:bg-primary/90">
               Save supplier
             </button>
           </div>

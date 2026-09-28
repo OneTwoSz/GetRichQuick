@@ -1,3 +1,5 @@
+import Logo from '@/components/Logo';
+import { ThemeIconButton } from '@/components/ThemeToggle';
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { publicAPI } from '@/services/api';
@@ -209,10 +211,10 @@ export default function Passport() {
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200">
+      <header className="sticky top-0 z-10 border-b border-gray-200 bg-white/80 backdrop-blur-md">
         <div className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
-          <span className="text-xl font-bold text-primary">GreenThread</span>
-          <span className="text-xs text-gray-500">Digital Product Passport</span>
+          <Logo />
+          <span className="flex items-center gap-2 text-xs text-gray-500">Digital Product Passport<ThemeIconButton /></span>
         </div>
       </header>
       <main className="max-w-3xl mx-auto px-4 py-6 space-y-4">{children}</main>

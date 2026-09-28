@@ -113,9 +113,9 @@ export default function Compliance() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Chemical Compliance</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900 sm:text-[28px]">Chemical Compliance</h1>
           <p className="mt-1 text-sm text-gray-600">Manage and track chemical compliance</p>
         </div>
         <button

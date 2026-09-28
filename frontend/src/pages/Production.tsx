@@ -1,3 +1,4 @@
+import { Spinner } from '@/components/ui';
 import { useState, useEffect, FormEvent } from 'react';
 import { productionAPI, carbonAPI } from '@/services/api';
 import type { ProductionRecord, ProductionFormData, FabricType, CarbonSummary } from '@/types';
@@ -148,10 +149,11 @@ export default function Production() {
   };
 
   if (loading) {
-    return <div className="text-center py-12">Loading...</div>;
+    return <Spinner />;
   }
 
-  const COLORS = ['#0D9488', '#14B8A6', '#2DD4BF', '#5EEAD4', '#99F6E4'];
+  // Theme-aware series colours (defined per theme in index.css).
+  const COLORS = [1, 2, 3, 4, 5].map((n) => `rgb(var(--chart-${n}))`);
 
   const chartData = carbonSummary
     ? [
@@ -165,9 +167,9 @@ export default function Production() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Production Data</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900 sm:text-[28px]">Production Data</h1>
           <p className="mt-1 text-sm text-gray-600">Log and track your production batches</p>
         </div>
         <button
@@ -213,16 +215,32 @@ export default function Production() {
                     cx="50%"
                     cy="50%"
                     labelLine={false}
+                    innerRadius={52}
                     outerRadius={80}
-                    fill="#8884d8"
+                    paddingAngle={2}
+                    stroke="rgb(var(--white))"
+                    strokeWidth={2}
                     dataKey="value"
                   >
                     {chartData.map((_entry, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip />
-                  <Legend />
+                  <Tooltip
+                    contentStyle={{
+                      background: 'rgb(var(--white))',
+                      border: '1px solid rgb(var(--hairline))',
+                      borderRadius: 8,
+                      fontSize: 12,
+                    }}
+                    itemStyle={{ color: 'rgb(var(--gray-900))' }}
+                    formatter={(v: number) => `${v.toFixed(1)} kg CO₂e`}
+                  />
+                  <Legend
+                    iconType="circle"
+                    iconSize={8}
+                    formatter={(value) => <span style={{ color: 'rgb(var(--gray-600))', fontSize: 12 }}>{value}</span>}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             </div>

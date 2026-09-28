@@ -152,7 +152,7 @@ export default function PassportPanel({ product }: { product: Product }) {
         {error && <div className="text-sm text-red-600">{error}</div>}
         <button
           disabled={!confirm || publishing}
-          className="bg-primary text-white px-4 py-2 rounded-lg text-sm hover:bg-primary/90 disabled:opacity-50"
+          className="shrink-0 whitespace-nowrap bg-primary text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-primary/90 disabled:opacity-50"
         >
           {publishing ? 'Signing…' : 'Sign & publish'}
         </button>

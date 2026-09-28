@@ -1,3 +1,4 @@
+import Logo from '@/components/Logo';
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { publicAPI } from '@/services/api';
@@ -24,9 +25,9 @@ export default function Share() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200">
+      <header className="border-b border-gray-200 bg-white/80 backdrop-blur-md">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-primary">GreenThread</h1>
+          <Logo />
           <span className="text-xs text-gray-500">Verified production data · read-only</span>
         </div>
       </header>
