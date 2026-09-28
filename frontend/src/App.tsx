@@ -15,6 +15,9 @@ import Batches from '@/pages/Batches';
 import Orders from '@/pages/Orders';
 import Share from '@/pages/Share';
 import JobWork from '@/pages/JobWork';
+import Suppliers from '@/pages/Suppliers';
+import Passport from '@/pages/Passport';
+import SupplierData from '@/pages/SupplierData';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -61,6 +64,10 @@ function AppRoutes() {
       <Route path="/share/:token" element={<Share />} />
       {/* Public — job-worker data request form (token URL, no login). */}
       <Route path="/jobwork/:token" element={<JobWork />} />
+      {/* Public — Digital Product Passport (what the garment QR opens). */}
+      <Route path="/passport/:token" element={<Passport />} />
+      {/* Public — upstream supplier data request form (token URL, no login). */}
+      <Route path="/supplier-data/:token" element={<SupplierData />} />
 
       <Route
         path="/login"
@@ -123,6 +130,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Orders />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/suppliers"
+        element={
+          <ProtectedRoute>
+            <Suppliers />
           </ProtectedRoute>
         }
       />

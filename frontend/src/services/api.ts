@@ -33,6 +33,22 @@ import type {
   Reconciliation,
   ProcessType,
   InventoryStatus,
+  Boundary,
+  LifecycleFootprint,
+  LifecycleSettings,
+  PassportStatus,
+  ProductSupplierLink,
+  PublicPassport,
+  ScenarioRequest,
+  ScenarioResult,
+  Supplier,
+  SupplierDataRequest,
+  SupplierFormData,
+  SupplierRequestInfo,
+  SupplierSubmission,
+  SupplierSubmissionFormData,
+  SupplyChainStage,
+  ValidationResult,
 } from '@/types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
@@ -309,6 +325,90 @@ export const publicAPI = {
 
   getSharedFootprint: (token: string) =>
     publicApi.get<OrderFootprint>(`/share/${token}`).then((res) => res.data),
+
+  getPassport: (token: string, version?: number) =>
+    publicApi
+      .get<PublicPassport>(`/passport/${token}`, { params: version ? { version } : undefined })
+      .then((res) => res.data),
+
+  passportQrUrl: (token: string) => `${API_URL}/passport/${token}/qr.svg`,
+
+  getSupplierRequest: (token: string) =>
+    publicApi.get<SupplierRequestInfo>(`/supplier-data/${token}`).then((res) => res.data),
+
+  submitSupplierData: (token: string, data: SupplierSubmissionFormData) =>
+    publicApi.post(`/supplier-data/${token}`, data).then((res) => res.data),
+};
+
+// Suppliers — the upstream supply chain map.
+export const suppliersAPI = {
+  getAll: () => api.get<Supplier[]>('/suppliers').then((res) => res.data),
+
+  create: (data: SupplierFormData) =>
+    api.post<Supplier>('/suppliers', data).then((res) => res.data),
+
+  update: (id: number, data: SupplierFormData) =>
+    api.put<Supplier>(`/suppliers/${id}`, data).then((res) => res.data),
+
+  delete: (id: number) => api.delete(`/suppliers/${id}`).then((res) => res.data),
+
+  createDataRequest: (id: number, data: { stage?: SupplyChainStage; period_label?: string }) =>
+    api.post<SupplierDataRequest>(`/suppliers/${id}/data-requests`, data).then((res) => res.data),
+
+  getDataRequests: (id: number) =>
+    api.get<SupplierDataRequest[]>(`/suppliers/${id}/data-requests`).then((res) => res.data),
+
+  getSubmissions: (id: number) =>
+    api.get<SupplierSubmission[]>(`/suppliers/${id}/submissions`).then((res) => res.data),
+};
+
+// Product life cycle, validation, supply-chain links and passports.
+export const lifecycleAPI = {
+  getFootprint: (productId: number, boundary?: Boundary) =>
+    api
+      .get<LifecycleFootprint>(`/products/${productId}/footprint`, {
+        params: boundary ? { boundary } : undefined,
+      })
+      .then((res) => res.data),
+
+  runScenario: (productId: number, scenario: ScenarioRequest) =>
+    api
+      .post<ScenarioResult>(`/products/${productId}/footprint/scenario`, scenario)
+      .then((res) => res.data),
+
+  getSettings: (productId: number) =>
+    api.get<LifecycleSettings>(`/products/${productId}/lifecycle`).then((res) => res.data),
+
+  saveSettings: (productId: number, data: LifecycleSettings) =>
+    api.put<LifecycleSettings>(`/products/${productId}/lifecycle`, data).then((res) => res.data),
+
+  validate: (productId: number) =>
+    api.get<ValidationResult>(`/products/${productId}/validation`).then((res) => res.data),
+
+  getSuppliers: (productId: number) =>
+    api.get<ProductSupplierLink[]>(`/products/${productId}/suppliers`).then((res) => res.data),
+
+  linkSupplier: (productId: number, stage: SupplyChainStage, supplierId: number) =>
+    api
+      .put<ProductSupplierLink>(`/products/${productId}/suppliers`, {
+        stage,
+        supplier_id: supplierId,
+      })
+      .then((res) => res.data),
+
+  unlinkSupplier: (productId: number, stage: SupplyChainStage) =>
+    api.delete(`/products/${productId}/suppliers/${stage}`).then((res) => res.data),
+
+  getPassport: (productId: number) =>
+    api.get<PassportStatus>(`/products/${productId}/passport`).then((res) => res.data),
+
+  publishPassport: (
+    productId: number,
+    data: { reviewed_by_name: string; review_note?: string; disclose_supplier_names: boolean }
+  ) =>
+    api
+      .post<PassportStatus>(`/products/${productId}/passport/publish`, data)
+      .then((res) => res.data),
 };
 
 // Fabric inventory (leftover / buffer fabric with embodied footprint).

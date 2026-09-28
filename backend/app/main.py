@@ -4,7 +4,7 @@ from .database import init_db
 from .routes import (
     auth, factory, production, carbon, water_energy, chemicals, reports,
     dashboard, audit, ocr, verify, products, orders, batches, inventory,
-    reconciliation,
+    reconciliation, suppliers, lifecycle,
 )
 
 # Create FastAPI app
@@ -45,6 +45,11 @@ app.include_router(batches.jobwork_router, prefix="/api")  # public, login-free
 app.include_router(inventory.router, prefix="/api")
 app.include_router(inventory.stock_router, prefix="/api")
 app.include_router(reconciliation.router, prefix="/api")
+# Phase 3 — life cycle, supply chain, digital product passports
+app.include_router(lifecycle.router, prefix="/api")
+app.include_router(lifecycle.passport_router, prefix="/api")          # public, login-free
+app.include_router(suppliers.router, prefix="/api")
+app.include_router(suppliers.supplier_data_router, prefix="/api")    # public, login-free
 
 
 @app.on_event("startup")

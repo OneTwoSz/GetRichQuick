@@ -37,11 +37,20 @@ from ..models import (
     Product,
     ProductionBatch,
     ProductionRecord,
+    ProductLifecycle,
+    ProductPassport,
+    ProductSupplier,
+    STAGE_TIER,
+    Supplier,
+    SupplierDataRequest,
+    SupplierSubmission,
+    SupplyChainStage,
     TransportMode,
     User,
     UserRole,
 )
 from ..services import batch_carbon
+from ..services import passport as passport_service
 from ..services.allocation import AllocationLine, compute_shares, fabric_demand_kg
 from ..utils.auth import get_password_hash
 
@@ -463,10 +472,96 @@ def main() -> int:
         else:
             logger.info("production batches already present — skipping phase-2 seed")
 
+        # Phase 3 — supply chain, supplier primary data, life-cycle
+        # settings, and one published passport.
+        if db.query(Supplier).filter(Supplier.factory_id == factory.id).count() == 0:
+            _seed_phase3(db, factory, user)
+            logger.info("seeded phase-3 suppliers, life-cycle settings and passport")
+        else:
+            logger.info("suppliers already present — skipping phase-3 seed")
+
         logger.info("done. login at /login with %s / %s", DEMO_EMAIL, DEMO_PASSWORD)
         return 0
     finally:
         db.close()
+
+
+def _seed_phase3(db, factory: Factory, user: User) -> None:
+    specs = [
+        # name, stage, city, certifications
+        ("Vidarbha Organic Cotton Collective", SupplyChainStage.RAW_MATERIALS, "Akola", ["GOTS"]),
+        ("Gujarat PET Recyclers", SupplyChainStage.RAW_MATERIALS, "Surat", ["GRS"]),
+        ("Kovai Organic Spinners", SupplyChainStage.YARN_PRODUCTION, "Coimbatore", ["GOTS", "OEKO-TEX"]),
+        ("Sri Murugan Knit Fabrics", SupplyChainStage.FABRIC_PRODUCTION, "Tiruppur", ["OEKO-TEX"]),
+        ("Sakthi Dyeing", SupplyChainStage.WET_PROCESSING, "Tiruppur", ["ZDHC Wastewater"]),
+    ]
+    suppliers = {}
+    for name, stage, city, certs in specs:
+        s = Supplier(factory_id=factory.id, name=name, stage=stage, tier=STAGE_TIER[stage],
+                     country="IN", city=city, certifications=[{"name": c} for c in certs])
+        db.add(s)
+        suppliers[name] = s
+    db.flush()
+
+    # The spinner has submitted metered data; the knit mill has a pending
+    # request at a stable demo URL (/supplier-data/demo-supplier-token).
+    spinner, mill = suppliers["Kovai Organic Spinners"], suppliers["Sri Murugan Knit Fabrics"]
+    spin_req = SupplierDataRequest(factory_id=factory.id, supplier_id=spinner.id,
+                                   stage=spinner.stage, token="demo-spinner-token",
+                                   period_label="Apr–Jun 2026", created_by=user.id)
+    db.add(spin_req)
+    db.add(SupplierDataRequest(factory_id=factory.id, supplier_id=mill.id, stage=mill.stage,
+                               token="demo-supplier-token", period_label="Apr–Jun 2026",
+                               created_by=user.id))
+    db.flush()
+    db.add(SupplierSubmission(
+        request_id=spin_req.id, supplier_id=spinner.id, stage=spinner.stage,
+        period_label="Apr–Jun 2026", output_kg=180000, electricity_kwh=594000,
+        water_l=90000, data_quality=DataQuality.MEASURED, submitted_by="Mill engineer",
+    ))
+
+    products = {p.sku: p for p in db.query(Product).filter(Product.factory_id == factory.id).all()}
+    links = {
+        "GTW-OC-200": ["Vidarbha Organic Cotton Collective", "Kovai Organic Spinners",
+                       "Sri Murugan Knit Fabrics", "Sakthi Dyeing"],
+        "GTW-CT-180": ["Kovai Organic Spinners", "Sri Murugan Knit Fabrics"],
+        "GTW-RPC-220": ["Gujarat PET Recyclers"],
+    }
+    for sku, names in links.items():
+        if sku not in products:
+            continue
+        for name in names:
+            s = suppliers[name]
+            db.add(ProductSupplier(product_id=products[sku].id, supplier_id=s.id, stage=s.stage))
+
+    # Tiruppur → Chennai port by truck, Chennai → Hamburg by sea, then a
+    # last leg to the buyer's DC.
+    export_route = [
+        {"mode": "truck", "distance_km": 450},
+        {"mode": "sea_freight", "distance_km": 15000},
+        {"mode": "truck", "distance_km": 300},
+    ]
+    settings_by_sku = {
+        "GTW-OC-200": dict(boundary="cradle_to_grave", washes=50, use_country="DE",
+                           packaging=[{"material_key": "recycled_ldpe_polybag", "grams": 8}]),
+        "GTW-CT-180": dict(boundary="cradle_to_customer",
+                           packaging=[{"material_key": "ldpe_polybag", "grams": 8}]),
+    }
+    for sku, cfg in settings_by_sku.items():
+        if sku in products:
+            db.add(ProductLifecycle(product_id=products[sku].id, distribution=export_route, **cfg))
+    db.commit()
+
+    if "GTW-OC-200" in products:
+        try:
+            v = passport_service.publish(
+                db, products["GTW-OC-200"], user, reviewed_by=DEMO_NAME,
+                review_note="Demo passport — reviewed against Q2 bills and spinner submission.",
+            )
+            token = db.query(ProductPassport).filter(ProductPassport.id == v.passport_id).first().public_token
+            logger.info("published demo passport v%d at /passport/%s", v.version, token)
+        except passport_service.PublishBlocked as exc:
+            logger.warning("demo passport not published: %s", [i.message for i in exc.issues])
 
 
 if __name__ == "__main__":

@@ -1,5 +1,8 @@
 import { useEffect, useState, FormEvent } from 'react';
 import { productsAPI } from '@/services/api';
+import LifecyclePanel from '@/components/LifecyclePanel';
+import SupplyChainPanel from '@/components/SupplyChainPanel';
+import PassportPanel from '@/components/PassportPanel';
 import type {
   Product,
   ProductCarbon,
@@ -426,6 +429,13 @@ function ProductDetail({
   carbon: ProductCarbon | null;
   carbonLoading: boolean;
 }) {
+  const [tab, setTab] = useState<'lifecycle' | 'supply' | 'passport' | 'bom'>('lifecycle');
+  const tabs = [
+    { key: 'lifecycle', label: 'Life cycle' },
+    { key: 'supply', label: 'Supply chain' },
+    { key: 'passport', label: 'Passport' },
+    { key: 'bom', label: 'BOM materials' },
+  ] as const;
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-lg shadow p-6">
@@ -454,6 +464,27 @@ function ProductDetail({
         </div>
       </div>
 
+      <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 -mb-px ${
+              tab === t.key
+                ? 'border-primary text-primary'
+                : 'border-transparent text-gray-600 hover:text-gray-800'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'lifecycle' && <LifecyclePanel product={product} />}
+      {tab === 'supply' && <SupplyChainPanel product={product} />}
+      {tab === 'passport' && <PassportPanel product={product} />}
+
+      {tab === 'bom' && (
       <div className="bg-white rounded-lg shadow p-6">
         <h3 className="font-semibold mb-3">Per-garment carbon footprint</h3>
         {carbonLoading ? (
@@ -468,7 +499,7 @@ function ProductDetail({
                   <span className="text-sm font-normal">kg CO₂e</span>
                 </div>
                 <div className="text-xs text-gray-500 mt-1">
-                  Materials only — what goes on the DPP
+                  Materials only — see Life cycle for the full footprint
                 </div>
               </div>
               <div className="p-4 bg-gray-50 rounded">
@@ -531,6 +562,7 @@ function ProductDetail({
           <div className="text-sm text-gray-500">No carbon data available.</div>
         )}
       </div>
+      )}
 
       {product.care_instructions && (
         <div className="bg-white rounded-lg shadow p-6">

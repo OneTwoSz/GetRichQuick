@@ -19,6 +19,7 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Orders', path: '/orders', icon: '📦' },
     { name: 'Production Data', path: '/production', icon: '📝' },
     { name: 'Products', path: '/products', icon: '👕' },
+    { name: 'Suppliers', path: '/suppliers', icon: '🔗' },
     { name: 'Compliance', path: '/compliance', icon: '✓' },
     { name: 'Reports', path: '/reports', icon: '📄' },
     { name: 'Settings', path: '/settings', icon: '⚙️' },

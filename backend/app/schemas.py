@@ -1,6 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, List, Dict
-from datetime import datetime
+from pydantic import AfterValidator
+from typing import Annotated, Optional, List, Dict, Literal
+from datetime import datetime, timezone
 from .models import (
     UserRole,
     FabricType,
@@ -14,6 +15,7 @@ from .models import (
     InventoryStatus,
     OrderStatus,
     StockEntryType,
+    SupplyChainStage,
 )
 
 
@@ -562,3 +564,234 @@ class AuditLogResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — life cycle, supply chain, passports
+# ---------------------------------------------------------------------------
+
+def _assume_utc(value: datetime) -> datetime:
+    """SQLite drops timezone info from server_default=now() timestamps;
+    they are UTC, so say so — otherwise browsers render them as local time."""
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
+UTCDateTime = Annotated[datetime, AfterValidator(_assume_utc)]
+
+Boundary = Literal["cradle_to_gate", "cradle_to_customer", "cradle_to_grave"]
+TransportModeLC = Literal["truck", "rail", "sea_freight", "air"]
+EndOfLife = Literal["eu_average", "landfill", "incineration", "recycling"]
+
+
+class Certification(BaseModel):
+    name: str
+    number: Optional[str] = None
+    valid_until: Optional[str] = None
+
+
+class SupplierBase(BaseModel):
+    name: str
+    stage: SupplyChainStage
+    tier: Optional[int] = Field(default=None, ge=1, le=4)  # defaults from stage
+    country: str = Field(default="IN", min_length=2, max_length=2)
+    city: Optional[str] = None
+    certifications: List[Certification] = Field(default_factory=list)
+    contact: Optional[str] = None
+
+
+class SupplierCreate(SupplierBase):
+    pass
+
+
+class SupplierResponse(SupplierBase):
+    id: int
+    factory_id: int
+    tier: int
+    created_at: UTCDateTime
+
+    class Config:
+        from_attributes = True
+
+
+class ProductSupplierLink(BaseModel):
+    stage: SupplyChainStage
+    supplier_id: int
+
+
+class ProductSupplierResponse(BaseModel):
+    stage: SupplyChainStage
+    supplier: SupplierResponse
+
+    class Config:
+        from_attributes = True
+
+
+class SupplierDataRequestCreate(BaseModel):
+    stage: Optional[SupplyChainStage] = None  # defaults to the supplier's stage
+    period_label: Optional[str] = None
+
+
+class SupplierDataRequestResponse(BaseModel):
+    id: int
+    supplier_id: int
+    stage: SupplyChainStage
+    token: str
+    period_label: Optional[str] = None
+    created_at: UTCDateTime
+
+    class Config:
+        from_attributes = True
+
+
+class SupplierSubmissionCreate(BaseModel):
+    """What a supplier posts through the token link: facility totals for
+    the period, and how much output they produced in it."""
+    output_kg: float = Field(gt=0)
+    electricity_kwh: float = Field(default=0, ge=0)
+    water_l: float = Field(default=0, ge=0)
+    steam_kg: float = Field(default=0, ge=0)
+    diesel_l: float = Field(default=0, ge=0)
+    chemical_kg: float = Field(default=0, ge=0)
+    dye_kg: float = Field(default=0, ge=0)
+    data_quality: Literal["measured", "estimated"] = "estimated"
+    period_label: Optional[str] = None
+    submitted_by: Optional[str] = None
+
+
+class SupplierSubmissionResponse(BaseModel):
+    id: int
+    supplier_id: int
+    stage: SupplyChainStage
+    period_label: Optional[str] = None
+    output_kg: float
+    electricity_kwh: float
+    water_l: float
+    steam_kg: float
+    diesel_l: float
+    chemical_kg: float
+    dye_kg: float
+    data_quality: DataQuality
+    submitted_by: Optional[str] = None
+    created_at: UTCDateTime
+
+    class Config:
+        from_attributes = True
+
+
+class PackagingLine(BaseModel):
+    material_key: str
+    grams: float = Field(gt=0)
+
+
+class TransportLegIn(BaseModel):
+    mode: TransportModeLC
+    distance_km: float = Field(gt=0)
+
+
+class LifecycleSettings(BaseModel):
+    boundary: Boundary = "cradle_to_gate"
+    packaging: List[PackagingLine] = Field(default_factory=list)
+    distribution: List[TransportLegIn] = Field(default_factory=list)
+    washes: int = Field(default=0, ge=0, le=500)
+    tumble_dry: bool = False
+    use_country: str = Field(default="EU", min_length=2, max_length=2)
+    end_of_life: EndOfLife = "eu_average"
+
+    class Config:
+        from_attributes = True
+
+
+class StageResultOut(BaseModel):
+    stage: str
+    label: str
+    co2e_kg: float
+    water_l: float
+    energy_kwh: float
+    data_source: str
+    quality_mix: Dict[str, float]
+    sources: List[str]
+    flags: List[str]
+    country: Optional[str] = None
+    mass_kg: Optional[float] = None
+
+
+class LifecycleFootprintResponse(BaseModel):
+    product_id: int
+    sku: str
+    boundary: str
+    co2e_kg: float
+    water_l: float
+    energy_kwh: float
+    quality_mix: Dict[str, float]
+    primary_share_pct: float
+    stages: List[StageResultOut]
+    mass_flow: Dict[str, float]
+    excluded_stages: List[str]
+
+
+class ScenarioRequest(BaseModel):
+    """Ecodesign what-if. Only the fields you set change."""
+    fibre_swaps: Dict[str, str] = Field(default_factory=dict)       # material_key -> material_key
+    stage_countries: Dict[str, str] = Field(default_factory=dict)   # stage -> ISO country
+    distribution: Optional[List[TransportLegIn]] = None
+    boundary: Optional[Boundary] = None
+    washes: Optional[int] = Field(default=None, ge=0, le=500)
+    end_of_life: Optional[EndOfLife] = None
+
+
+class ScenarioResponse(BaseModel):
+    baseline: LifecycleFootprintResponse
+    scenario: LifecycleFootprintResponse
+    delta_co2e_kg: float
+    delta_co2e_pct: Optional[float] = None
+    delta_water_l: float
+
+
+class ValidationIssueOut(BaseModel):
+    severity: Literal["error", "warning", "info"]
+    code: str
+    message: str
+    entity: Optional[str] = None
+
+
+class ValidationResponse(BaseModel):
+    product_id: int
+    errors: int
+    warnings: int
+    infos: int
+    publishable: bool
+    issues: List[ValidationIssueOut]
+
+
+class PassportPublishRequest(BaseModel):
+    reviewed_by_name: str = Field(min_length=2)
+    review_note: Optional[str] = None
+    disclose_supplier_names: bool = False
+
+
+class PassportVersionSummary(BaseModel):
+    version: int
+    payload_hash: str
+    reviewed_by_name: str
+    published_at: UTCDateTime
+
+    class Config:
+        from_attributes = True
+
+
+class PassportStatusResponse(BaseModel):
+    product_id: int
+    public_token: Optional[str] = None
+    versions: List[PassportVersionSummary] = Field(default_factory=list)
+
+
+class PublicPassportResponse(BaseModel):
+    version: int
+    published_at: UTCDateTime
+    payload: dict
+    payload_hash: str
+    algorithm: str
+    signature_b64: str
+    public_key_pem: str
+    verification: Dict[str, object]
+    versions: List[PassportVersionSummary]
