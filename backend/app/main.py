@@ -97,7 +97,7 @@ _static = Path(settings.STATIC_DIR).resolve() if settings.STATIC_DIR else None
 
 if _static and (_static / "index.html").is_file():
 
-    @app.get("/{full_path:path}", include_in_schema=False)
+    @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def spa(full_path: str):
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not found")

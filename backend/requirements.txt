@@ -9,6 +9,8 @@ passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 python-multipart==0.0.32
 weasyprint==60.2
+# WeasyPrint 60.x breaks with pydyf 0.11+ ("PDF.__init__() takes 1 positional argument")
+pydyf==0.10.0
 jinja2==3.1.6
 python-dateutil==2.9.0.post0
 # OCR via Anthropic Claude vision
