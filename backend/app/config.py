@@ -1,3 +1,4 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 from typing import Optional
 
@@ -28,13 +29,27 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: Optional[str] = None
     AWS_KMS_KEY_ID: Optional[str] = None
 
-    # Public base URL (for verify links embedded in PDFs)
-    PUBLIC_BASE_URL: str = "http://localhost:5173"
+    # Public base URL (for verify links embedded in PDFs and passport QR
+    # codes). On Render, RENDER_EXTERNAL_URL is used when this is left unset.
+    PUBLIC_BASE_URL: Optional[str] = None
+    RENDER_EXTERNAL_URL: Optional[str] = None
 
     # Generated reports directory. Defaults to /app/reports (the Docker path)
     # but can be overridden in dev to a path that exists on the host, e.g.
     # ./reports — set REPORTS_DIR in .env when running outside Docker.
     REPORTS_DIR: str = "/app/reports"
+
+    # Hosted single-service mode: serve the built frontend from this
+    # directory, and seed the demo factory when the database is empty
+    # (hosts with ephemeral disks start fresh on every deploy).
+    STATIC_DIR: Optional[str] = None
+    DEMO_SEED: bool = False
+
+    @model_validator(mode="after")
+    def _resolve_public_base_url(self):
+        if not self.PUBLIC_BASE_URL:
+            self.PUBLIC_BASE_URL = self.RENDER_EXTERNAL_URL or "http://localhost:5173"
+        return self
 
     class Config:
         env_file = ".env"

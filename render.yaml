@@ -1,0 +1,22 @@
+# Render Blueprint — one free web service running the root Dockerfile.
+# Deploy: render.com → New → Blueprint → pick this repo (and branch).
+#
+# Storage is the container's own disk, so the SQLite database resets on
+# every deploy and whenever a free instance spins down after inactivity.
+# DEMO_SEED re-creates the demo factory each time, which is what a shared
+# demo wants. For data that must persist, add a Render Postgres database
+# and set DATABASE_URL to its connection string instead.
+services:
+  - type: web
+    name: greenthread
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEMO_SEED
+        value: "true"
+      - key: REPORT_SIGNING_PROVIDER
+        value: local

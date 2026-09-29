@@ -44,7 +44,7 @@ export default defineConfig({
         // Cache app shell and static assets aggressively; let API calls
         // bypass the service worker so the offline queue owns retry logic.
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
-        navigateFallbackDenylist: [/^\/api/, /^\/verify\//],
+        navigateFallbackDenylist: [/^\/api/, /^\/verify\//, /^\/docs/, /^\/openapi\.json/, /^\/health/],
         runtimeCaching: [
           {
             // Factory and static-looking GETs can be stale-while-revalidated

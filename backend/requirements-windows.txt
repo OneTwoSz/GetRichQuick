@@ -9,26 +9,28 @@
 #                        sqlite3 module from Python's stdlib.
 #
 # Install with:  pip install -r requirements-windows.txt
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-sqlalchemy==2.0.25
-pydantic[email]==2.5.3
-pydantic-settings==2.1.0
-python-jose[cryptography]==3.3.0
+fastapi==0.141.1
+uvicorn[standard]==0.54.0
+sqlalchemy==2.1.1
+pydantic[email]==2.13.5
+pydantic-settings==2.15.0
+python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
 # passlib 1.7.4 calls bcrypt.__about__.__version__ which was removed in
 # bcrypt 4.1+. Pin to the last version that still ships __about__.
 bcrypt==4.0.1
-python-multipart==0.0.6
-jinja2==3.1.3
-python-dateutil==2.8.2
+python-multipart==0.0.32
+jinja2==3.1.6
+python-dateutil==2.9.0.post0
 # OCR via Anthropic Claude vision (optional — leave ANTHROPIC_API_KEY blank
 # in .env to skip; only the OCR endpoint is affected).
-anthropic==0.39.0
+anthropic==1.8.0
 # Signing (Ed25519). cryptography ships prebuilt wheels for Windows.
-cryptography==42.0.5
+cryptography==50.0.1
 # AWS KMS (only used when REPORT_SIGNING_PROVIDER=kms; safe to keep installed).
-boto3==1.34.69
+boto3==1.43.103
+# QR codes for Digital Product Passports (pure Python, no deps)
+segno==1.6.6
 # Tests (allocation engine acceptance tests live in backend/tests).
-pytest==8.2.0
-httpx==0.27.0
+pytest==9.1.1
+httpx==0.28.1

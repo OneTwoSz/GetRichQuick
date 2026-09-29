@@ -459,6 +459,275 @@ export interface JobWorkInfo {
   already_submitted: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Phase 3 — life cycle, supply chain, digital product passports
+// ---------------------------------------------------------------------------
+
+export type SupplyChainStage =
+  | 'raw_materials'
+  | 'yarn_production'
+  | 'fabric_production'
+  | 'wet_processing'
+  | 'assembly'
+  | 'trims_packaging';
+
+export type Boundary = 'cradle_to_gate' | 'cradle_to_customer' | 'cradle_to_grave';
+export type TransportModeLC = 'truck' | 'rail' | 'sea_freight' | 'air';
+export type EndOfLife = 'eu_average' | 'landfill' | 'incineration' | 'recycling';
+export type StageDataSource =
+  | 'factory_primary'
+  | 'factory_default'
+  | 'supplier_primary'
+  | 'supplier_declared'
+  | 'default'
+  | 'mixed'
+  | 'none';
+
+export interface Certification {
+  name: string;
+  number?: string | null;
+  valid_until?: string | null;
+}
+
+export interface Supplier {
+  id: number;
+  factory_id: number;
+  name: string;
+  stage: SupplyChainStage;
+  tier: number;
+  country: string;
+  city?: string | null;
+  certifications: Certification[];
+  contact?: string | null;
+  created_at: string;
+}
+
+export interface SupplierFormData {
+  name: string;
+  stage: SupplyChainStage;
+  country: string;
+  city?: string;
+  certifications: Certification[];
+  contact?: string;
+}
+
+export interface ProductSupplierLink {
+  stage: SupplyChainStage;
+  supplier: Supplier;
+}
+
+export interface SupplierDataRequest {
+  id: number;
+  supplier_id: number;
+  stage: SupplyChainStage;
+  token: string;
+  period_label?: string | null;
+  created_at: string;
+}
+
+export interface SupplierSubmission {
+  id: number;
+  supplier_id: number;
+  stage: SupplyChainStage;
+  period_label?: string | null;
+  output_kg: number;
+  electricity_kwh: number;
+  water_l: number;
+  steam_kg: number;
+  diesel_l: number;
+  chemical_kg: number;
+  dye_kg: number;
+  data_quality: DataQuality;
+  submitted_by?: string | null;
+  created_at: string;
+}
+
+export interface SupplierSubmissionFormData {
+  output_kg: number;
+  electricity_kwh: number;
+  water_l: number;
+  steam_kg: number;
+  diesel_l: number;
+  chemical_kg: number;
+  dye_kg: number;
+  data_quality: 'measured' | 'estimated';
+  period_label?: string;
+  submitted_by?: string;
+}
+
+export interface SupplierRequestInfo {
+  factory_name?: string | null;
+  supplier_name: string;
+  stage: SupplyChainStage;
+  period_label?: string | null;
+  already_submitted: boolean;
+}
+
+export interface LifecycleSettings {
+  boundary: Boundary;
+  packaging: { material_key: string; grams: number }[];
+  distribution: { mode: TransportModeLC; distance_km: number }[];
+  washes: number;
+  tumble_dry: boolean;
+  use_country: string;
+  end_of_life: EndOfLife;
+}
+
+export interface StageResult {
+  stage: string;
+  label: string;
+  co2e_kg: number;
+  water_l: number;
+  energy_kwh: number;
+  data_source: StageDataSource;
+  quality_mix: Record<string, number>;
+  sources: string[];
+  flags: string[];
+  country?: string | null;
+  mass_kg?: number | null;
+}
+
+export interface LifecycleFootprint {
+  product_id: number;
+  sku: string;
+  boundary: Boundary;
+  co2e_kg: number;
+  water_l: number;
+  energy_kwh: number;
+  quality_mix: Record<string, number>;
+  primary_share_pct: number;
+  stages: StageResult[];
+  mass_flow: Record<string, number>;
+  excluded_stages: string[];
+}
+
+export interface ScenarioRequest {
+  fibre_swaps?: Record<string, string>;
+  stage_countries?: Record<string, string>;
+  distribution?: { mode: TransportModeLC; distance_km: number }[];
+  boundary?: Boundary;
+  washes?: number;
+  end_of_life?: EndOfLife;
+}
+
+export interface ScenarioResult {
+  baseline: LifecycleFootprint;
+  scenario: LifecycleFootprint;
+  delta_co2e_kg: number;
+  delta_co2e_pct: number | null;
+  delta_water_l: number;
+}
+
+export interface ValidationIssue {
+  severity: 'error' | 'warning' | 'info';
+  code: string;
+  message: string;
+  entity?: string | null;
+}
+
+export interface ValidationResult {
+  product_id: number;
+  errors: number;
+  warnings: number;
+  infos: number;
+  publishable: boolean;
+  issues: ValidationIssue[];
+}
+
+export interface PassportVersionSummary {
+  version: number;
+  payload_hash: string;
+  reviewed_by_name: string;
+  published_at: string;
+}
+
+export interface PassportStatus {
+  product_id: number;
+  public_token: string | null;
+  versions: PassportVersionSummary[];
+}
+
+export interface PassportStage {
+  stage: string;
+  label: string;
+  co2e_kg: number;
+  water_l: number;
+  data_source: StageDataSource;
+  quality_mix: Record<string, number>;
+  country?: string | null;
+}
+
+export interface PassportPayload {
+  schema: string;
+  passport_id: string;
+  version: number;
+  published_at: string;
+  product: {
+    sku: string;
+    name: string;
+    description?: string | null;
+    fiber_composition?: string | null;
+    garment_weight_g: number;
+    care_instructions?: string | null;
+  };
+  manufacturer: { name: string; location: string; country: string };
+  composition: { material: string; material_key?: string | null; share_pct: number | null }[];
+  supply_chain: {
+    stage: SupplyChainStage;
+    tier: number;
+    facility: string | null;
+    city?: string | null;
+    country: string;
+    certifications: string[];
+  }[];
+  footprint: {
+    functional_unit: string;
+    boundary: Boundary;
+    co2e_kg: number;
+    water_l: number;
+    energy_kwh: number;
+    primary_data_share_pct: number;
+    quality_mix: Record<string, number>;
+    stages: PassportStage[];
+    excluded_stages: string[];
+    methodology: string;
+  };
+  circularity: {
+    recycled_content_pct: number;
+    cutting_waste_pct: number;
+    cutting_waste_destination: string | null;
+    end_of_life_scenario: string;
+  };
+  chemical_compliance: {
+    chemicals_traced: number;
+    zdhc_mrsl_conformant: number;
+    reach_compliant: number;
+  };
+  verification: {
+    automated_checks: { errors: number; warnings: number };
+    reviewed_by: string;
+    review_note?: string | null;
+  };
+}
+
+export interface PublicPassport {
+  version: number;
+  published_at: string;
+  payload: PassportPayload;
+  payload_hash: string;
+  algorithm: string;
+  signature_b64: string;
+  public_key_pem: string;
+  verification: {
+    hash_matches: boolean;
+    signature_valid: boolean;
+    verified: boolean;
+    payload_hash: string;
+    recomputed_hash: string;
+  };
+  versions: PassportVersionSummary[];
+}
+
 // Audit Log types
 export interface AuditLog {
   id: number;

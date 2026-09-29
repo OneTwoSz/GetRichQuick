@@ -5,49 +5,11 @@ need the ORM layer (inventory transfer, rework, default-factor quality mix,
 monthly reconciliation, share link).
 """
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app.database import Base, get_db, json_serializer
-from app.main import app
-from app.models import Factory, User, UserRole
-from app.utils.auth import get_current_user
+from app.utils.constants import BATCH_INPUT_EMISSION_FACTORS as F
 
-engine = create_engine(
-    "sqlite://",
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-    json_serializer=json_serializer,
-)
-TestingSession = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-@pytest.fixture()
-def client():
-    Base.metadata.create_all(bind=engine)
-    session = TestingSession()
-
-    user = User(email="mill@example.com", password_hash="x", name="Mill", role=UserRole.FACTORY_MANAGER)
-    session.add(user)
-    session.flush()
-    factory = Factory(user_id=user.id, name="Tiruppur Knits", location="Tiruppur")
-    session.add(factory)
-    session.commit()
-
-    def override_get_db():
-        try:
-            yield session
-        finally:
-            pass
-
-    app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_current_user] = lambda: user
-    yield TestClient(app)
-    app.dependency_overrides.clear()
-    session.close()
-    Base.metadata.drop_all(bind=engine)
+# The 1,000 kg lot used below: 10,000 L water + 1,000 kWh.
+BATCH_CO2 = 10_000 * F["water_l"] + 1_000 * F["electricity_kwh"]
 
 
 def _make_product(client, sku, weight_g, waste_pct):
@@ -119,8 +81,8 @@ def test_full_batch_allocation_footprint_and_inventory(client):
     item = inventory[0]
     assert item["fabric_kg"] == pytest.approx(50)
     assert item["embodied_water_l"] == pytest.approx(500)
-    # 5% of total CO2: water 10,000×0.0003 + power 1,000×0.85 = 853 kg → 42.65
-    assert item["embodied_co2_kg"] == pytest.approx(853 * 0.05)
+    # 5% of total CO2: water 10,000 L + power 1,000 kWh at the batch factors
+    assert item["embodied_co2_kg"] == pytest.approx(BATCH_CO2 * 0.05)
 
     # Order totals unchanged by the leftover.
     fp_after = client.get(f"/api/orders/{order_a['id']}/footprint").json()
@@ -132,7 +94,7 @@ def test_full_batch_allocation_footprint_and_inventory(client):
     assert r.status_code == 200
     fp_c = client.get(f"/api/orders/{order_c['id']}/footprint").json()
     assert fp_c["embodied_water_l"] == pytest.approx(500)
-    assert fp_c["embodied_co2_kg"] == pytest.approx(853 * 0.05)
+    assert fp_c["embodied_co2_kg"] == pytest.approx(BATCH_CO2 * 0.05)
 
 
 def test_rework_batch_adds_pro_rata(client):
@@ -243,7 +205,7 @@ def test_monthly_reconciliation_overhead(client):
 
     # The order footprint includes its overhead slice as ESTIMATED data.
     fp = client.get(f"/api/orders/{order_a['id']}/footprint").json()
-    assert fp["overhead_co2_kg"] == pytest.approx(1800 * 0.85, rel=1e-3)
+    assert fp["overhead_co2_kg"] == pytest.approx(1800 * F["electricity_kwh"], rel=1e-3)
     assert fp["quality_mix"]["estimated"] > 0
 
 

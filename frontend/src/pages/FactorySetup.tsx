@@ -49,7 +49,7 @@ export default function FactorySetup() {
     <div className="max-w-2xl mx-auto">
       <div className="bg-white rounded-lg shadow">
         <div className="p-6 border-b border-gray-200">
-          <h1 className="text-2xl font-bold text-gray-900">Factory Setup</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900 sm:text-[28px]">Factory Setup</h1>
           <p className="mt-1 text-sm text-gray-600">
             Set up your factory profile to start tracking sustainability metrics
           </p>

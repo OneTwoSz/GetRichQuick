@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
+import { ThemeProvider } from '@/hooks/useTheme';
 import Layout from '@/components/Layout';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
@@ -15,6 +16,9 @@ import Batches from '@/pages/Batches';
 import Orders from '@/pages/Orders';
 import Share from '@/pages/Share';
 import JobWork from '@/pages/JobWork';
+import Suppliers from '@/pages/Suppliers';
+import Passport from '@/pages/Passport';
+import SupplierData from '@/pages/SupplierData';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -22,7 +26,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-primary">Loading...</div>
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" aria-label="Loading" />
       </div>
     );
   }
@@ -40,7 +44,7 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-primary">Loading...</div>
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" aria-label="Loading" />
       </div>
     );
   }
@@ -61,6 +65,10 @@ function AppRoutes() {
       <Route path="/share/:token" element={<Share />} />
       {/* Public — job-worker data request form (token URL, no login). */}
       <Route path="/jobwork/:token" element={<JobWork />} />
+      {/* Public — Digital Product Passport (what the garment QR opens). */}
+      <Route path="/passport/:token" element={<Passport />} />
+      {/* Public — upstream supplier data request form (token URL, no login). */}
+      <Route path="/supplier-data/:token" element={<SupplierData />} />
 
       <Route
         path="/login"
@@ -127,6 +135,14 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/suppliers"
+        element={
+          <ProtectedRoute>
+            <Suppliers />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/compliance"
         element={
           <ProtectedRoute>
@@ -156,10 +172,12 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </BrowserRouter>
+    <ThemeProvider>
+      <BrowserRouter>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </BrowserRouter>
+    </ThemeProvider>
   );
 }

@@ -1,6 +1,12 @@
 import { useState, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import AuthShell, { authButton, authLabel } from '@/components/AuthShell';
+
+// The hosted demo (VITE_DEMO_MODE=true) offers one-tap sign-in to the seeded
+// demo factory. These are the public demo credentials from seed_demo.py.
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
+const DEMO_ACCOUNT = { email: 'demo@greenthread.app', password: 'demo1234' };
 
 export default function Login() {
   const { login } = useAuth();
@@ -9,13 +15,12 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const signIn = async (credentials: { email: string; password: string }) => {
     setError('');
     setLoading(true);
 
     try {
-      await login({ email, password });
+      await login(credentials);
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Login failed';
       setError(errorMessage);
@@ -24,74 +29,82 @@ export default function Login() {
     }
   };
 
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    signIn({ email, password });
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="max-w-md w-full space-y-8">
-        <div className="text-center">
-          <h1 className="text-4xl font-bold text-primary mb-2">GreenThread</h1>
-          <h2 className="text-2xl font-semibold text-gray-900">Sign in to your account</h2>
-          <p className="mt-2 text-sm text-gray-600">
-            Sustainability data management for textile manufacturers
-          </p>
+    <AuthShell title="Welcome back" subtitle="Sign in to your factory workspace.">
+      <form className="space-y-5" onSubmit={handleSubmit}>
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        )}
+
+        <div>
+          <label htmlFor="email" className={authLabel}>
+            Email address
+          </label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="input mt-1.5"
+          />
         </div>
 
-        <form className="mt-8 space-y-6 bg-white p-8 rounded-lg shadow" onSubmit={handleSubmit}>
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-              {error}
+        <div>
+          <label htmlFor="password" className={authLabel}>
+            Password
+          </label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="input mt-1.5"
+          />
+        </div>
+
+        <button type="submit" disabled={loading} className={authButton}>
+          {loading ? 'Signing in…' : 'Sign in'}
+        </button>
+
+        {DEMO_MODE && (
+          <>
+            <div className="flex items-center gap-3 text-xs text-gray-400">
+              <span className="h-px flex-1 bg-gray-200" />
+              or
+              <span className="h-px flex-1 bg-gray-200" />
             </div>
-          )}
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => signIn(DEMO_ACCOUNT)}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary-50 px-4 py-2.5 text-sm font-semibold text-primary-700 transition-colors hover:bg-primary-100 disabled:opacity-50"
+            >
+              Explore the demo factory
+            </button>
+            <p className="text-center text-xs text-gray-400">
+              Saravana Knits, Tiruppur — sample data, resets periodically.
+            </p>
+          </>
+        )}
 
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email address
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary"
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50"
-          >
-            {loading ? 'Signing in...' : 'Sign in'}
-          </button>
-
-          <div className="text-center text-sm">
-            <span className="text-gray-600">Don't have an account? </span>
-            <Link to="/register" className="font-medium text-primary hover:text-primary-600">
-              Register here
-            </Link>
-          </div>
-        </form>
-      </div>
-    </div>
+        <p className="text-center text-sm text-gray-500">
+          New to GreenThread?{' '}
+          <Link to="/register" className="font-medium text-primary hover:text-primary-600">
+            Create an account
+          </Link>
+        </p>
+      </form>
+    </AuthShell>
   );
 }

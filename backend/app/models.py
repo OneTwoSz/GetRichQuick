@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Enum, Text, JSON
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Enum, Text, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
@@ -604,3 +604,166 @@ class MonthlyUtility(Base):
     total_water_liters = Column(Float, default=0, nullable=False)
     note = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — product life cycle, supply chain, digital product passport
+#
+# All new tables (no columns added to existing ones) so databases created
+# before Phase 3 keep working: init_db()'s create_all adds these on start.
+# ---------------------------------------------------------------------------
+
+
+class SupplyChainStage(str, enum.Enum):
+    """Upstream stages a supplier can perform. Mirrors the life-cycle
+    engine's stage keys (services/lifecycle.py)."""
+    RAW_MATERIALS = "raw_materials"
+    YARN_PRODUCTION = "yarn_production"
+    FABRIC_PRODUCTION = "fabric_production"
+    WET_PROCESSING = "wet_processing"
+    ASSEMBLY = "assembly"
+    TRIMS_PACKAGING = "trims_packaging"
+
+
+# Conventional apparel tiering: Tier 1 finished goods, Tier 2 fabric and
+# wet processing (and trims), Tier 3 yarn, Tier 4 raw fibre.
+STAGE_TIER = {
+    SupplyChainStage.ASSEMBLY: 1,
+    SupplyChainStage.FABRIC_PRODUCTION: 2,
+    SupplyChainStage.WET_PROCESSING: 2,
+    SupplyChainStage.TRIMS_PACKAGING: 2,
+    SupplyChainStage.YARN_PRODUCTION: 3,
+    SupplyChainStage.RAW_MATERIALS: 4,
+}
+
+
+class Supplier(Base):
+    """An upstream facility in the factory's supply chain (spinner, knitter,
+    dye house, fibre trader, trims vendor). Certifications are a JSON list
+    of {"name", "number", "valid_until"} — GOTS, OEKO-TEX, GRS, BCI..."""
+    __tablename__ = "suppliers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    factory_id = Column(Integer, ForeignKey("factories.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    stage = Column(Enum(SupplyChainStage), nullable=False)
+    tier = Column(Integer, nullable=False)
+    country = Column(String(2), nullable=False, default="IN")  # ISO-3166 alpha-2
+    city = Column(String, nullable=True)
+    certifications = Column(JSON, nullable=False, default=list)
+    contact = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    submissions = relationship("SupplierSubmission", back_populates="supplier",
+                               cascade="all, delete-orphan")
+
+
+class ProductSupplier(Base):
+    """Which supplier performs which upstream stage for a product. One
+    supplier per stage per product — the traceability map a passport shows."""
+    __tablename__ = "product_suppliers"
+    __table_args__ = (UniqueConstraint("product_id", "stage", name="uq_product_stage"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    supplier_id = Column(Integer, ForeignKey("suppliers.id"), nullable=False, index=True)
+    stage = Column(Enum(SupplyChainStage), nullable=False)
+
+    supplier = relationship("Supplier")
+
+
+class SupplierDataRequest(Base):
+    """A login-free token link asking a supplier for a period's resource
+    use at one stage — the upstream twin of the job-work link."""
+    __tablename__ = "supplier_data_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    factory_id = Column(Integer, ForeignKey("factories.id"), nullable=False, index=True)
+    supplier_id = Column(Integer, ForeignKey("suppliers.id"), nullable=False, index=True)
+    stage = Column(Enum(SupplyChainStage), nullable=False)
+    token = Column(String, unique=True, nullable=False, index=True)
+    period_label = Column(String, nullable=True)  # e.g. "Apr–Jun 2026"
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    supplier = relationship("Supplier")
+
+
+class SupplierSubmission(Base):
+    """A supplier's facility totals for a period at one stage. Intensity
+    per kg = each input ÷ output_kg; the life-cycle engine applies it to
+    the product's mass at that stage."""
+    __tablename__ = "supplier_submissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    request_id = Column(Integer, ForeignKey("supplier_data_requests.id"), nullable=True, index=True)
+    supplier_id = Column(Integer, ForeignKey("suppliers.id"), nullable=False, index=True)
+    stage = Column(Enum(SupplyChainStage), nullable=False)
+    period_label = Column(String, nullable=True)
+    output_kg = Column(Float, nullable=False)
+    electricity_kwh = Column(Float, default=0, nullable=False)
+    water_l = Column(Float, default=0, nullable=False)
+    steam_kg = Column(Float, default=0, nullable=False)
+    diesel_l = Column(Float, default=0, nullable=False)
+    chemical_kg = Column(Float, default=0, nullable=False)
+    dye_kg = Column(Float, default=0, nullable=False)
+    data_quality = Column(Enum(DataQuality), default=DataQuality.ESTIMATED, nullable=False)
+    submitted_by = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    supplier = relationship("Supplier", back_populates="submissions")
+
+
+class ProductLifecycle(Base):
+    """Per-product life-cycle settings beyond the factory gate: system
+    boundary, packaging, distribution legs, use and end-of-life scenario."""
+    __tablename__ = "product_lifecycle"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), unique=True, nullable=False)
+    boundary = Column(String, default="cradle_to_gate", nullable=False)
+    packaging = Column(JSON, nullable=False, default=list)      # [{material_key, grams}]
+    distribution = Column(JSON, nullable=False, default=list)   # [{mode, distance_km}]
+    washes = Column(Integer, default=0, nullable=False)
+    tumble_dry = Column(Boolean, default=False, nullable=False)
+    use_country = Column(String(2), default="EU", nullable=False)
+    end_of_life = Column(String, default="eu_average", nullable=False)
+
+
+class ProductPassport(Base):
+    """The public Digital Product Passport for a product. Content lives in
+    immutable, signed PassportVersion rows; the token is what the QR code
+    on the garment label resolves to."""
+    __tablename__ = "product_passports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    factory_id = Column(Integer, ForeignKey("factories.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), unique=True, nullable=False)
+    public_token = Column(String, unique=True, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    versions = relationship("PassportVersion", back_populates="passport",
+                            cascade="all, delete-orphan", order_by="PassportVersion.version")
+
+
+class PassportVersion(Base):
+    """One published snapshot. The payload is hashed (canonical JSON) and
+    signed with the factory key, so anyone can check the passport they are
+    reading is exactly what the factory published and signed off."""
+    __tablename__ = "passport_versions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    passport_id = Column(Integer, ForeignKey("product_passports.id"), nullable=False, index=True)
+    version = Column(Integer, nullable=False)
+    payload = Column(JSON, nullable=False)
+    payload_hash = Column(String, nullable=False, index=True)
+    factory_key_id = Column(Integer, ForeignKey("factory_keys.id"), nullable=False)
+    algorithm = Column(String, nullable=False)
+    signature_b64 = Column(Text, nullable=False)
+    public_key_pem = Column(Text, nullable=False)
+    reviewed_by_name = Column(String, nullable=False)
+    review_note = Column(Text, nullable=True)
+    published_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    published_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    passport = relationship("ProductPassport", back_populates="versions")

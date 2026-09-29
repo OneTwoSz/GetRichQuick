@@ -10,7 +10,7 @@ end-to-end with just Python and Node.
 
 Install once:
 
-- **Python 3.11 or 3.12** — https://www.python.org/downloads/windows/
+- **Python 3.11, 3.12 or 3.13** — https://www.python.org/downloads/windows/
   - During install, tick **"Add python.exe to PATH"**.
 - **Node.js 20 LTS** — https://nodejs.org/
 - **Git** — https://git-scm.com/download/win
@@ -18,7 +18,7 @@ Install once:
 Verify in a fresh PowerShell window:
 
 ```powershell
-python --version    # 3.11.x or 3.12.x
+python --version    # 3.11.x – 3.13.x
 node --version      # v20.x
 npm --version
 ```
@@ -121,6 +121,33 @@ history, a chemicals page with one ZDHC-flagged entry, and the Generate
 Report button — which will now produce a sustainability report (HTML on
 Windows-without-GTK; PDF anywhere WeasyPrint installs).
 
+## Product passports (Phase 3)
+
+The seed also creates a supply chain, a supplier data submission and one
+published Digital Product Passport:
+
+- **Products → a product → Life cycle** — per-garment footprint by stage
+  (fibre → end of life), each stage labelled with where its data came from
+  (factory batches, supplier submission, or a disclosed default factor),
+  the primary-data share, automated checks and an ecodesign comparison.
+- **Products → Supply chain** — link the spinner / knit mill / dye house
+  behind each stage and send them a login-free data request link.
+- **Products → Passport** — sign & publish a passport version; print the QR.
+- **Suppliers** — your Tier 2–4 facilities and their submissions.
+- Public pages (no login): `/passport/<token>` and, for suppliers,
+  `/supplier-data/demo-supplier-token`.
+
+Emission factors live in `backend/app/utils/factor_library.py`, each with
+its source. Grid electricity (CEA v21.0 for India, Ember 2025 elsewhere),
+freight, diesel and water (UK Government GHG Conversion Factors 2025) come
+from official publications. Fibres, per-process defaults, chemicals, steam,
+trims, packaging and use/end-of-life are still indicative — swap in a
+licensed dataset (Textile Exchange, ecoinvent, Higg MSI, supplier EPDs)
+before using footprints in public claims.
+
+An existing `greenthread.db` keeps working — the new tables are created on
+startup. Re-run `python -m app.jobs.seed_demo` to add the Phase 3 demo data.
+
 ## What is NOT working in this setup
 
 | Feature | Status | How to enable |
@@ -139,8 +166,10 @@ for signature validity.
 **`ModuleNotFoundError: No module named 'sqlalchemy'`** — the venv isn't
 activated. Run `.\.venv\Scripts\Activate.ps1` again.
 
-**`bcrypt` import errors on Python 3.13** — pin to 3.11 or 3.12. The
-`passlib[bcrypt]==1.7.4` pin we ship doesn't support 3.13 yet.
+**`bcrypt` errors (`module 'bcrypt' has no attribute '__about__'`, or
+passwords failing to verify)** — `passlib 1.7.4` only works with
+`bcrypt==4.0.1`, which is what the requirements pin. If something upgraded
+it, run `pip install bcrypt==4.0.1`.
 
 **`Set-ExecutionPolicy ... blocked`** — open PowerShell as a regular user
 and run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. Don't use
