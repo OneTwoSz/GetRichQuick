@@ -42,6 +42,7 @@ from ..models import (
     SupplyChainStage,
     User,
 )
+from ..utils import care_symbols
 from ..utils.hashing import sha256_of_json
 from . import lifecycle
 from .product_footprint import build_inputs, lifecycle_settings
@@ -135,6 +136,11 @@ def build_payload(db: Session, product: Product, factory: Factory, *, version: i
             "fiber_composition": product.fiber_composition,
             "garment_weight_g": product.garment_weight_g,
             "care_instructions": product.care_instructions,
+            "care_symbols": care_symbols.describe(product.care_symbols or []),
+            # The photo's hash is signed with the rest of the passport, so a
+            # swapped image is detectable even though the file lives outside.
+            "image_url": product.image_url,
+            "image_sha256": product.image_sha256,
         },
         "manufacturer": {"name": factory.name, "location": factory.location, "country": "IN"},
         "composition": _composition(product),

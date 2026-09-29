@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     # directory, and seed the demo factory when the database is empty
     # (hosts with ephemeral disks start fresh on every deploy).
     STATIC_DIR: Optional[str] = None
+    # Uploaded product photos (served publicly at /api/media/<file>).
+    MEDIA_DIR: str = "./media"
     DEMO_SEED: bool = False
 
     @model_validator(mode="after")

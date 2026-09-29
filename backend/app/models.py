@@ -207,6 +207,11 @@ class Product(Base):
     care_instructions = Column(Text, nullable=True)
     target_buyer = Column(String, nullable=True)
     active = Column(Boolean, default=True, nullable=False)
+    # Passport presentation (Phase 3). Nullable so database.add_missing_columns
+    # can add them to databases created before they existed.
+    image_url = Column(String, nullable=True)       # "/api/media/<file>"
+    image_sha256 = Column(String, nullable=True)    # pinned into signed passports
+    care_symbols = Column(JSON, nullable=True)      # ["wash_30", "do_not_bleach", ...]
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     factory = relationship("Factory", back_populates="products")

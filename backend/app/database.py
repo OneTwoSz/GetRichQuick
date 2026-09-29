@@ -47,3 +47,33 @@ def init_db():
     """Initialize database - create all tables"""
     from . import models  # Import models to register them
     Base.metadata.create_all(bind=engine)
+    add_missing_columns(engine)
+
+
+def add_missing_columns(bind) -> list:
+    """Additive schema sync for existing databases.
+
+    create_all() creates new tables but never alters existing ones, so a
+    column added to a model is missing from databases created before it.
+    This adds such columns (nullable, no default) with ALTER TABLE. It never
+    drops or changes anything — real migrations are still needed for that.
+    Returns the "table.column" names it added.
+    """
+    from sqlalchemy import inspect
+    from sqlalchemy.schema import CreateColumn
+
+    added = []
+    inspector = inspect(bind)
+    existing_tables = set(inspector.get_table_names())
+    with bind.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if table.name not in existing_tables:
+                continue
+            present = {c["name"] for c in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in present or not column.nullable:
+                    continue
+                ddl = CreateColumn(column).compile(dialect=bind.dialect)
+                conn.exec_driver_sql(f"ALTER TABLE {table.name} ADD COLUMN {ddl}")
+                added.append(f"{table.name}.{column.name}")
+    return added

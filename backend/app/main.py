@@ -52,6 +52,7 @@ app.include_router(reconciliation.router, prefix="/api")
 # Phase 3 — life cycle, supply chain, digital product passports
 app.include_router(lifecycle.router, prefix="/api")
 app.include_router(lifecycle.passport_router, prefix="/api")          # public, login-free
+app.include_router(lifecycle.media_router, prefix="/api")            # public product photos
 app.include_router(suppliers.router, prefix="/api")
 app.include_router(suppliers.supplier_data_router, prefix="/api")    # public, login-free
 

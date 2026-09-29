@@ -521,6 +521,14 @@ def _seed_phase3(db, factory: Factory, user: User) -> None:
     ))
 
     products = {p.sku: p for p in db.query(Product).filter(Product.factory_id == factory.id).all()}
+    care = {
+        "GTW-CT-180": ["wash_30", "do_not_bleach", "tumble_low", "iron_medium", "do_not_dry_clean"],
+        "GTW-OC-200": ["wash_30_gentle", "do_not_bleach", "line_dry", "iron_medium", "do_not_dry_clean"],
+        "GTW-RPC-220": ["wash_40", "do_not_bleach", "tumble_low", "iron_low", "do_not_dry_clean"],
+    }
+    for sku, symbols in care.items():
+        if sku in products:
+            products[sku].care_symbols = symbols
     links = {
         "GTW-OC-200": ["Vidarbha Organic Cotton Collective", "Kovai Organic Spinners",
                        "Sri Murugan Knit Fabrics", "Sakthi Dyeing"],

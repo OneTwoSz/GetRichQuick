@@ -207,6 +207,8 @@ export interface Product {
   active: boolean;
   created_at: string;
   bom_items: BomItem[];
+  image_url?: string | null;
+  care_symbols?: string[] | null;
 }
 
 export interface BomItemFormData {
@@ -669,6 +671,9 @@ export interface PassportPayload {
     fiber_composition?: string | null;
     garment_weight_g: number;
     care_instructions?: string | null;
+    care_symbols?: { code: string; category: string; label: string }[];
+    image_url?: string | null;
+    image_sha256?: string | null;
   };
   manufacturer: { name: string; location: string; country: string };
   composition: { material: string; material_key?: string | null; share_pct: number | null }[];

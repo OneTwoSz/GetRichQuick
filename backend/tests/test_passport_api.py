@@ -213,3 +213,79 @@ def test_publish_passport_signed_public_and_tamper_evident(client):
 def test_unknown_passport_404(client):
     assert client.get("/api/passport/nope").status_code == 404
     assert client.get("/api/passport/nope/qr.svg").status_code == 404
+
+
+# --- passport presentation: photo, care symbols, label QR ---------------------------
+
+PNG_BYTES = bytes.fromhex("89504e470d0a1a0a") + b"\x00" * 64  # signature is what's checked
+
+
+def test_product_photo_upload_is_hashed_into_passport(client, tmp_path, monkeypatch):
+    import hashlib
+    from app.config import settings
+    monkeypatch.setattr(settings, "MEDIA_DIR", str(tmp_path))
+    pid = _product(client)
+
+    bad = client.post(f"/api/products/{pid}/image",
+                      files={"file": ("x.png", b"not an image", "image/png")})
+    assert bad.status_code == 400  # content sniffed, not trusted from the client
+
+    r = client.post(f"/api/products/{pid}/image", files={"file": ("tee.png", PNG_BYTES, "image/png")})
+    assert r.status_code == 200, r.text
+    url = r.json()["image_url"]
+    assert url.startswith("/api/media/") and url.endswith(".png")
+    assert client.get(url).content == PNG_BYTES
+    assert client.get("/api/media/..%2Fsecret").status_code == 404
+
+    client.post(f"/api/products/{pid}/passport/publish", json={"reviewed_by_name": "R. Kumar"})
+    token = client.get(f"/api/products/{pid}/passport").json()["public_token"]
+    product = client.get(f"/api/passport/{token}").json()["payload"]["product"]
+    assert product["image_url"] == url
+    assert product["image_sha256"] == hashlib.sha256(PNG_BYTES).hexdigest()
+
+    # Replacing the photo removes the old file.
+    old_file = tmp_path / url.rsplit("/", 1)[-1]
+    client.post(f"/api/products/{pid}/image", files={"file": ("b.png", PNG_BYTES + b"1", "image/png")})
+    assert not old_file.exists()
+    assert client.delete(f"/api/products/{pid}/image").json()["image_url"] is None
+
+
+def test_care_symbols_one_per_category(client):
+    pid = _product(client)
+    r = client.put(f"/api/products/{pid}/care-symbols",
+                   json={"symbols": ["iron_medium", "wash_30", "do_not_bleach"]})
+    assert r.status_code == 200, r.text
+    assert r.json()["care_symbols"] == ["wash_30", "do_not_bleach", "iron_medium"]  # label order
+
+    assert client.put(f"/api/products/{pid}/care-symbols",
+                      json={"symbols": ["wash_30", "wash_40"]}).status_code == 400
+    assert client.put(f"/api/products/{pid}/care-symbols",
+                      json={"symbols": ["wash_boiling"]}).status_code == 400
+
+    client.post(f"/api/products/{pid}/passport/publish", json={"reviewed_by_name": "R. Kumar"})
+    token = client.get(f"/api/products/{pid}/passport").json()["public_token"]
+    symbols = client.get(f"/api/passport/{token}").json()["payload"]["product"]["care_symbols"]
+    assert symbols[0] == {"code": "wash_30", "category": "washing", "label": "Machine wash 30°C"}
+
+
+def test_label_grade_qr(client):
+    pid = _product(client)
+    client.post(f"/api/products/{pid}/passport/publish", json={"reviewed_by_name": "R. Kumar"})
+    token = client.get(f"/api/products/{pid}/passport").json()["public_token"]
+    assert client.get(f"/api/passport/{token}/qr.svg?ecc=q").status_code == 200
+    assert client.get(f"/api/passport/{token}/qr.svg?ecc=z").status_code == 422
+
+
+def test_add_missing_columns_upgrades_old_databases():
+    from sqlalchemy import create_engine, inspect
+    from app.database import add_missing_columns
+
+    old = create_engine("sqlite://")
+    with old.begin() as conn:  # a products table from before the photo columns
+        conn.exec_driver_sql(
+            "CREATE TABLE products (id INTEGER PRIMARY KEY, factory_id INTEGER, sku VARCHAR, "
+            "name VARCHAR, garment_weight_g FLOAT, cutting_waste_percent FLOAT, active BOOLEAN)")
+    added = add_missing_columns(old)
+    assert {"products.image_url", "products.image_sha256", "products.care_symbols"} <= set(added)
+    assert "image_url" in {c["name"] for c in inspect(old).get_columns("products")}
+    assert add_missing_columns(old) == []  # idempotent

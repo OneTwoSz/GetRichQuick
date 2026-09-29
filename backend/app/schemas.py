@@ -161,6 +161,9 @@ class ProductResponse(ProductBase):
     factory_id: int
     created_at: datetime
     bom_items: List[BomItemResponse] = Field(default_factory=list)
+    # Passport presentation — set via dedicated endpoints, not ProductUpdate.
+    image_url: Optional[str] = None
+    care_symbols: Optional[List[str]] = None
 
     class Config:
         from_attributes = True
@@ -795,3 +798,7 @@ class PublicPassportResponse(BaseModel):
     public_key_pem: str
     verification: Dict[str, object]
     versions: List[PassportVersionSummary]
+
+
+class CareSymbolsUpdate(BaseModel):
+    symbols: List[str] = Field(default_factory=list, max_length=5)

@@ -5,11 +5,15 @@ Digital Product Passports (Phase 3).
 Authenticated endpoints live under /products/{id}/… next to the Phase 1
 catalog routes; the public passport (and its QR code) under /passport.
 """
+import hashlib
 import io
-from typing import List, Optional
+import secrets
+from pathlib import Path
+from typing import List, Literal, Optional
 
 import segno
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -26,6 +30,8 @@ from ..models import (
     User,
 )
 from ..schemas import (
+    CareSymbolsUpdate,
+    ProductResponse,
     LifecycleFootprintResponse,
     LifecycleSettings,
     PassportPublishRequest,
@@ -44,11 +50,22 @@ from ..services import lifecycle, passport as passport_service, product_footprin
 from ..services.audit_logger import AuditLogger
 from ..services.signing_service import SigningError
 from ..services.validation import validate_product
+from ..utils import care_symbols
 from ..utils.auth import get_current_user
 
 router = APIRouter(prefix="/products", tags=["Product life cycle"])
 # Public, login-free: what the QR code on the garment label resolves to.
 passport_router = APIRouter(prefix="/passport", tags=["Digital Product Passport"])
+# Public: product photos shown on passports.
+media_router = APIRouter(prefix="/media", tags=["Media"])
+
+# Accepted photo formats, identified by their leading bytes (not the
+# client-supplied content type).
+_IMAGE_SIGNATURES = {
+    bytes.fromhex("ffd8ff"): "jpg",
+    bytes.fromhex("89504e470d0a1a0a"): "png",
+}
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 
 def _get_product(product_id: int, user: User, db: Session) -> Product:
@@ -325,13 +342,115 @@ def public_passport(token: str, version: Optional[int] = None, db: Session = Dep
 
 
 @passport_router.get("/{token}/qr.svg")
-def passport_qr(token: str, db: Session = Depends(get_db)):
-    """QR code for the garment label / hangtag, pointing at the public page."""
+def passport_qr(
+    token: str,
+    ecc: Literal["m", "q", "h"] = "m",
+    db: Session = Depends(get_db),
+):
+    """QR code for the garment label / hangtag, pointing at the public page.
+
+    `ecc=q` (25% recovery) or `h` (30%) suits labels printed on fabric that
+    get washed and creased. The 4-module quiet zone is the QR spec minimum;
+    scanners struggle when printers crop it."""
     _public_passport(token, db)
     url = f"{settings.PUBLIC_BASE_URL.rstrip('/')}/passport/{token}"
     # A standalone SVG document (with xmlns) — svg_inline() omits the
     # namespace, which <img> tags and label printers refuse to render.
     buffer = io.BytesIO()
-    segno.make(url, error="m").save(buffer, kind="svg", scale=6, border=2, xmldecl=False)
+    segno.make(url, error=ecc).save(buffer, kind="svg", scale=6, border=4, xmldecl=False)
     return Response(content=buffer.getvalue(), media_type="image/svg+xml",
                     headers={"Cache-Control": "public, max-age=3600"})
+
+
+# --- passport presentation: photo and care symbols ---------------------------------
+
+
+def _media_dir() -> Path:
+    path = Path(settings.MEDIA_DIR).resolve()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _remove_media(url: Optional[str]):
+    if url and url.startswith("/api/media/"):
+        (_media_dir() / url.rsplit("/", 1)[-1]).unlink(missing_ok=True)
+
+
+@router.post("/{product_id}/image", response_model=ProductResponse)
+async def upload_product_image(
+    product_id: int,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Set the product photo shown at the top of its passport (JPEG/PNG, ≤ 5 MB)."""
+    product = _get_product(product_id, current_user, db)
+    data = await file.read(MAX_IMAGE_BYTES + 1)
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="Image must be 5 MB or smaller")
+    ext = next((e for sig, e in _IMAGE_SIGNATURES.items() if data.startswith(sig)), None)
+    if ext is None and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        ext = "webp"
+    if ext is None:
+        raise HTTPException(status_code=400, detail="Upload a JPEG, PNG or WebP image")
+
+    name = f"{secrets.token_hex(12)}.{ext}"
+    (_media_dir() / name).write_bytes(data)
+    _remove_media(product.image_url)
+    product.image_url = f"/api/media/{name}"
+    product.image_sha256 = hashlib.sha256(data).hexdigest()
+    db.commit()
+    db.refresh(product)
+    AuditLogger.log_action(
+        db=db, factory_id=product.factory_id, user_id=current_user.id,
+        action="UPDATE", entity_type="product_image", entity_id=product.id,
+        new_value={"image_url": product.image_url, "image_sha256": product.image_sha256},
+    )
+    return product
+
+
+@router.delete("/{product_id}/image", response_model=ProductResponse)
+def delete_product_image(
+    product_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    product = _get_product(product_id, current_user, db)
+    _remove_media(product.image_url)
+    product.image_url = None
+    product.image_sha256 = None
+    db.commit()
+    db.refresh(product)
+    return product
+
+
+@router.put("/{product_id}/care-symbols", response_model=ProductResponse)
+def set_care_symbols(
+    product_id: int,
+    payload: CareSymbolsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Care-label symbols for the passport — at most one per category."""
+    product = _get_product(product_id, current_user, db)
+    try:
+        product.care_symbols = care_symbols.validate(payload.symbols)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    db.commit()
+    db.refresh(product)
+    AuditLogger.log_action(
+        db=db, factory_id=product.factory_id, user_id=current_user.id,
+        action="UPDATE", entity_type="product_care_symbols", entity_id=product.id,
+        new_value={"care_symbols": product.care_symbols},
+    )
+    return product
+
+
+@media_router.get("/{name}")
+def get_media(name: str):
+    """Public product photos. Names are random, so they can't be enumerated."""
+    path = (_media_dir() / name).resolve()
+    if path.parent != _media_dir() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(path, headers={"Cache-Control": "public, max-age=31536000, immutable"})

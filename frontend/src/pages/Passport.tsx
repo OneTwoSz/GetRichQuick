@@ -2,13 +2,16 @@ import Logo from '@/components/Logo';
 import { ThemeIconButton } from '@/components/ThemeToggle';
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { publicAPI } from '@/services/api';
+import { mediaUrl, publicAPI } from '@/services/api';
+import { CareSymbolRow } from '@/components/CareSymbols';
+import GarmentArt from '@/components/GarmentArt';
 import type { PublicPassport } from '@/types';
 import { QualityMixBar, StageBreakdown } from '@/components/StageBreakdown';
 import {
   BOUNDARY_LABELS,
   COUNTRIES,
   SUPPLY_STAGE_LABELS,
+  everyday,
   humanize,
 } from '@/components/lifecycleLabels';
 
@@ -21,12 +24,35 @@ export default function Passport() {
   const [data, setData] = useState<PublicPassport | null>(null);
   const [error, setError] = useState(false);
   const [showProof, setShowProof] = useState(false);
+  const [everydayView, setEverydayView] = useState(false);
+  const [photoCheck, setPhotoCheck] = useState<'checking' | 'match' | 'mismatch' | null>(null);
 
   useEffect(() => {
     if (!token) return;
     setData(null);
     publicAPI.getPassport(token, version).then(setData).catch(() => setError(true));
   }, [token, version]);
+
+  // The photo lives outside the signed payload, but its SHA-256 is inside it:
+  // re-hash what we actually received and compare.
+  const photoPath = data?.payload.product.image_url;
+  const photoHash = data?.payload.product.image_sha256;
+  useEffect(() => {
+    const url = mediaUrl(photoPath);
+    if (!url || !photoHash || !window.crypto?.subtle) {
+      setPhotoCheck(null);
+      return;
+    }
+    setPhotoCheck('checking');
+    fetch(url)
+      .then((r) => r.arrayBuffer())
+      .then((buf) => crypto.subtle.digest('SHA-256', buf))
+      .then((digest) => {
+        const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+        setPhotoCheck(hex === photoHash ? 'match' : 'mismatch');
+      })
+      .catch(() => setPhotoCheck('mismatch'));
+  }, [photoPath, photoHash]);
 
   if (error) {
     return (
@@ -48,6 +74,7 @@ export default function Passport() {
   const p = data.payload;
   const fp = p.footprint;
   const verified = data.verification.verified;
+  const careCodes = (p.product.care_symbols ?? []).map((c) => c.code);
   const latest = data.versions[0]?.version;
 
   return (
@@ -80,9 +107,19 @@ export default function Passport() {
         </div>
       </div>
 
-      <section className="bg-white rounded-lg shadow p-5">
+      <section className="overflow-hidden rounded-lg bg-white shadow">
+        {mediaUrl(p.product.image_url) ? (
+          <img
+            src={mediaUrl(p.product.image_url)!}
+            alt={p.product.name}
+            className="aspect-[4/3] w-full bg-gray-100 object-cover sm:aspect-[16/9]"
+          />
+        ) : (
+          <GarmentArt className="aspect-[16/9] w-full" />
+        )}
+        <div className="p-5">
         <div className="text-xs font-mono text-gray-500">{p.product.sku}</div>
-        <h1 className="text-2xl font-bold">{p.product.name}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{p.product.name}</h1>
         {p.product.description && <p className="text-sm text-gray-600 mt-1">{p.product.description}</p>}
         <div className="flex flex-wrap gap-2 mt-3">
           {p.composition.map((c) => (
@@ -96,18 +133,56 @@ export default function Passport() {
           Made by <span className="font-medium">{p.manufacturer.name}</span> · {p.manufacturer.location},{' '}
           {COUNTRIES[p.manufacturer.country] ?? p.manufacturer.country}
         </div>
+        </div>
       </section>
 
       <section className="bg-white rounded-lg shadow p-5">
-        <h2 className="font-semibold">Environmental footprint</h2>
-        <p className="text-xs text-gray-500 mb-4">
-          Per {fp.functional_unit} · {BOUNDARY_LABELS[fp.boundary]}
-        </p>
-        <div className="grid grid-cols-3 gap-3 mb-5 text-center">
-          <Big value={fp.co2e_kg.toFixed(2)} unit="kg CO₂e" label="Carbon" />
-          <Big value={fp.water_l.toFixed(0)} unit="litres" label="Water" />
-          <Big value={`${fp.primary_data_share_pct.toFixed(0)}%`} unit="primary data" label="Measured at source" />
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+          <div>
+            <h2 className="font-semibold">Environmental footprint</h2>
+            <p className="text-xs text-gray-500">
+              Per {fp.functional_unit} · {BOUNDARY_LABELS[fp.boundary]}
+            </p>
+          </div>
+          <div role="radiogroup" aria-label="Units" className="inline-flex rounded-lg bg-gray-100 p-1 text-xs font-medium">
+            {[
+              { v: false, label: 'Scientific' },
+              { v: true, label: 'Everyday' },
+            ].map(({ v, label }) => (
+              <button
+                key={label}
+                role="radio"
+                aria-checked={everydayView === v}
+                onClick={() => setEverydayView(v)}
+                className={`rounded-md px-3 py-1.5 ${everydayView === v ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
+        {everydayView ? (
+          <div className="grid grid-cols-3 gap-3 mb-2 text-center">
+            {everyday(fp.co2e_kg, fp.water_l, fp.energy_kwh).map((e) => (
+              <div key={e.key} className="rounded bg-primary-50 p-3" title={e.basis}>
+                <div className="text-2xl font-bold text-primary">{e.value}</div>
+                <div className="text-xs text-gray-600">{e.unit}</div>
+                <div className="mt-1 text-[11px] text-gray-500">{e.label}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-3 mb-5 text-center">
+            <Big value={fp.co2e_kg.toFixed(2)} unit="kg CO₂e" label="Carbon" />
+            <Big value={fp.water_l.toFixed(0)} unit="litres" label="Water" />
+            <Big value={`${fp.primary_data_share_pct.toFixed(0)}%`} unit="primary data" label="Measured at source" />
+          </div>
+        )}
+        {everydayView && (
+          <p className="mb-5 text-[11px] text-gray-400">
+            Approximate comparisons. Car: 0.167 kg CO₂e per km (UK Government GHG Conversion Factors 2025).
+          </p>
+        )}
         <div className="mb-5">
           <div className="text-xs font-medium text-gray-600 mb-1">How the numbers were obtained</div>
           <QualityMixBar mix={fp.quality_mix} />
@@ -164,10 +239,18 @@ export default function Passport() {
         </section>
       </div>
 
-      {p.product.care_instructions && (
+      {(careCodes.length > 0 || p.product.care_instructions) && (
         <section className="bg-white rounded-lg shadow p-5 text-sm">
-          <h2 className="font-semibold mb-1">Care</h2>
-          <p className="text-gray-700">{p.product.care_instructions}</p>
+          <h2 className="font-semibold mb-3">Care</h2>
+          {careCodes.length > 0 && <CareSymbolRow codes={careCodes} />}
+          {p.product.care_instructions && (
+            <p className={careCodes.length > 0 ? 'mt-3 text-gray-700' : 'text-gray-700'}>
+              {p.product.care_instructions}
+            </p>
+          )}
+          <p className="mt-3 text-xs text-gray-500">
+            Washing cooler and line drying lowers this garment’s footprint in use.
+          </p>
         </section>
       )}
 
@@ -185,6 +268,18 @@ export default function Passport() {
             />
             <Row label="Signature" value={`${data.algorithm} · ${data.verification.signature_valid ? 'valid' : 'INVALID'}`} />
             <Row label="Content hash" value={data.verification.hash_matches ? 'matches' : 'DOES NOT MATCH'} />
+            {photoCheck && (
+              <Row
+                label="Product photo"
+                value={
+                  photoCheck === 'checking'
+                    ? 'checking…'
+                    : photoCheck === 'match'
+                      ? 'matches signed hash'
+                      : 'DOES NOT MATCH'
+                }
+              />
+            )}
             <div className="font-mono break-all bg-gray-50 rounded p-2">{data.payload_hash}</div>
             <p className="text-gray-500">{fp.methodology}</p>
             <p className="text-gray-500">

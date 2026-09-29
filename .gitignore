@@ -48,6 +48,7 @@ Thumbs.db
 # Reports
 backend/reports/*.pdf
 backend/reports/*.html
+backend/media/
 
 # Database
 *.db

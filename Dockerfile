@@ -30,10 +30,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ ./
 COPY --from=frontend /frontend/dist /app/static
-RUN mkdir -p /app/data /app/reports
+RUN mkdir -p /app/data /app/reports /app/media
 
 ENV STATIC_DIR=/app/static \
     REPORTS_DIR=/app/reports \
+    MEDIA_DIR=/app/media \
     DATABASE_URL=sqlite:////app/data/greenthread.db \
     PYTHONUNBUFFERED=1
 

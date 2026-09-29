@@ -53,6 +53,15 @@ import type {
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
+// Media paths are stored as "/api/media/<file>". In development the API
+// runs on another origin (VITE_API_URL=http://localhost:8000/api), so
+// resolve them against the API's origin; same-origin deploys use them as-is.
+export function mediaUrl(path?: string | null): string | null {
+  if (!path) return null;
+  if (/^https?:/.test(path)) return path;
+  return /^https?:/.test(API_URL) ? new URL(API_URL).origin + path : path;
+}
+
 // Create axios instance
 const api = axios.create({
   baseURL: API_URL,
@@ -331,7 +340,8 @@ export const publicAPI = {
       .get<PublicPassport>(`/passport/${token}`, { params: version ? { version } : undefined })
       .then((res) => res.data),
 
-  passportQrUrl: (token: string) => `${API_URL}/passport/${token}/qr.svg`,
+  passportQrUrl: (token: string, ecc: 'm' | 'q' | 'h' = 'm') =>
+    `${API_URL}/passport/${token}/qr.svg${ecc === 'm' ? '' : `?ecc=${ecc}`}`,
 
   getSupplierRequest: (token: string) =>
     publicApi.get<SupplierRequestInfo>(`/supplier-data/${token}`).then((res) => res.data),
@@ -401,6 +411,22 @@ export const lifecycleAPI = {
 
   getPassport: (productId: number) =>
     api.get<PassportStatus>(`/products/${productId}/passport`).then((res) => res.data),
+
+  uploadImage: (productId: number, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api
+      .post<Product>(`/products/${productId}/image`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((res) => res.data);
+  },
+
+  deleteImage: (productId: number) =>
+    api.delete<Product>(`/products/${productId}/image`).then((res) => res.data),
+
+  setCareSymbols: (productId: number, symbols: string[]) =>
+    api.put<Product>(`/products/${productId}/care-symbols`, { symbols }).then((res) => res.data),
 
   publishPassport: (
     productId: number,

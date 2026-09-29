@@ -1,8 +1,12 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { isAxiosError } from 'axios';
-import { lifecycleAPI, publicAPI } from '@/services/api';
+import { ImagePlus, Printer, Trash2 } from 'lucide-react';
+import { lifecycleAPI, mediaUrl, publicAPI } from '@/services/api';
 import { useAuth } from '@/hooks/useAuth';
 import type { PassportStatus, Product } from '@/types';
+import { CareSymbolPicker } from '@/components/CareSymbols';
+import GarmentArt from '@/components/GarmentArt';
 
 // Publish and manage the product's Digital Product Passport. Publishing
 // runs the automated checks, records a named sign-off, and signs an
@@ -54,6 +58,8 @@ export default function PassportPanel({ product }: { product: Product }) {
 
   return (
     <div className="space-y-4">
+      <PassportContent product={product} />
+
       {status?.public_token && publicUrl && (
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="font-semibold mb-3">Live passport</h3>
@@ -85,6 +91,13 @@ export default function PassportPanel({ product }: { product: Product }) {
               >
                 Download QR (SVG)
               </a>
+              <Link
+                to={`/passport/${status.public_token}/label`}
+                target="_blank"
+                className="ml-4 inline-flex items-center gap-1 text-primary text-xs font-medium"
+              >
+                <Printer className="h-3.5 w-3.5" aria-hidden /> Print care-label QR sheet
+              </Link>
             </div>
           </div>
           <table className="w-full text-sm mt-4">
@@ -157,6 +170,105 @@ export default function PassportPanel({ product }: { product: Product }) {
           {publishing ? 'Signing…' : 'Sign & publish'}
         </button>
       </form>
+    </div>
+  );
+}
+
+// Photo and care symbols shown on the passport. Changes appear on the
+// public page after the next published version (passports are snapshots).
+function PassportContent({ product }: { product: Product }) {
+  const [imageUrl, setImageUrl] = useState(product.image_url ?? null);
+  const [symbols, setSymbols] = useState<string[]>(product.care_symbols ?? []);
+  const [savedSymbols, setSavedSymbols] = useState<string[]>(product.care_symbols ?? []);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setImageUrl(product.image_url ?? null);
+    setSymbols(product.care_symbols ?? []);
+    setSavedSymbols(product.care_symbols ?? []);
+    setMessage(null);
+  }, [product.id, product.image_url, product.care_symbols]);
+
+  const run = async (action: () => Promise<Product>, done: string) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const updated = await action();
+      setImageUrl(updated.image_url ?? null);
+      setSavedSymbols(updated.care_symbols ?? []);
+      setSymbols(updated.care_symbols ?? []);
+      setMessage(`${done} Publish a new version to show it on the live passport.`);
+    } catch (err) {
+      const detail = isAxiosError(err) ? err.response?.data?.detail : null;
+      setMessage(typeof detail === 'string' ? detail : 'Something went wrong.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) run(() => lifecycleAPI.uploadImage(product.id, file), 'Photo saved.');
+  };
+
+  const dirty = symbols.join() !== savedSymbols.join();
+  const photo = mediaUrl(imageUrl);
+
+  return (
+    <div className="bg-white rounded-lg shadow p-6">
+      <h3 className="font-semibold">Passport content</h3>
+      <p className="text-xs text-gray-500 mb-4">What shoppers see besides the footprint.</p>
+      <div className="grid gap-6 md:grid-cols-[160px_1fr]">
+        <div>
+          <div className="text-xs font-medium text-gray-500 mb-1.5">Product photo</div>
+          <div className="aspect-square overflow-hidden rounded-lg border border-gray-200">
+            {photo ? (
+              <img src={photo} alt={product.name} className="h-full w-full object-cover" />
+            ) : (
+              <GarmentArt className="h-full w-full" />
+            )}
+          </div>
+          <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={onFile} />
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => fileInput.current?.click()}
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+            >
+              <ImagePlus className="h-3.5 w-3.5" aria-hidden /> {photo ? 'Replace' : 'Upload'}
+            </button>
+            {photo && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => run(() => lifecycleAPI.deleteImage(product.id), 'Photo removed.')}
+                aria-label="Remove photo"
+                className="rounded-lg border border-gray-200 px-2 text-gray-500 hover:text-red-600 disabled:opacity-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <p className="mt-1 text-[11px] text-gray-400">JPEG, PNG or WebP · up to 5 MB</p>
+        </div>
+        <div>
+          <div className="text-xs font-medium text-gray-500 mb-2">Care symbols — pick one per row</div>
+          <CareSymbolPicker value={symbols} onChange={setSymbols} />
+          <button
+            type="button"
+            disabled={!dirty || busy}
+            onClick={() => run(() => lifecycleAPI.setCareSymbols(product.id, symbols), 'Care symbols saved.')}
+            className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-600 disabled:opacity-40"
+          >
+            Save care symbols
+          </button>
+        </div>
+      </div>
+      {message && <p className="mt-4 text-sm text-gray-600">{message}</p>}
     </div>
   );
 }

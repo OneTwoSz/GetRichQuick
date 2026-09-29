@@ -69,3 +69,38 @@ export const COUNTRIES: Record<string, string> = {
 };
 
 export const humanize = (key: string) => key.replace(/_/g, ' ');
+
+// Everyday comparisons for the passport's "Everyday" view. Each one states
+// its basis so shoppers (and auditors) can see how it was derived.
+export const EQUIVALENCES = {
+  // UK Government GHG Conversion Factors 2025, "Average car, unknown fuel".
+  carKgPerKm: 0.16725,
+  // Energy expressed as run-time of a 10 W LED bulb (pure arithmetic).
+  ledBulbKw: 0.01,
+};
+
+export function everyday(co2eKg: number, waterL: number, energyKwh: number) {
+  return [
+    {
+      key: 'co2',
+      value: (co2eKg / EQUIVALENCES.carKgPerKm).toFixed(1),
+      unit: 'km',
+      label: 'driven in an average car',
+      basis: '0.167 kg CO₂e per km — UK Government GHG Conversion Factors 2025',
+    },
+    {
+      key: 'water',
+      value: Math.round(waterL).toLocaleString(),
+      unit: 'bottles',
+      label: 'of 1-litre drinking water',
+      basis: '1 litre per bottle',
+    },
+    {
+      key: 'energy',
+      value: (energyKwh / EQUIVALENCES.ledBulbKw).toFixed(0),
+      unit: 'hours',
+      label: 'of a 10 W LED bulb',
+      basis: '10 W = 0.01 kWh per hour',
+    },
+  ];
+}

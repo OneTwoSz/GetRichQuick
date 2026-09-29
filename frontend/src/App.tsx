@@ -18,6 +18,7 @@ import Share from '@/pages/Share';
 import JobWork from '@/pages/JobWork';
 import Suppliers from '@/pages/Suppliers';
 import Passport from '@/pages/Passport';
+import PassportLabel from '@/pages/PassportLabel';
 import SupplierData from '@/pages/SupplierData';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -67,6 +68,8 @@ function AppRoutes() {
       <Route path="/jobwork/:token" element={<JobWork />} />
       {/* Public — Digital Product Passport (what the garment QR opens). */}
       <Route path="/passport/:token" element={<Passport />} />
+      {/* Public — printable care-label QR sheet for a passport. */}
+      <Route path="/passport/:token/label" element={<PassportLabel />} />
       {/* Public — upstream supplier data request form (token URL, no login). */}
       <Route path="/supplier-data/:token" element={<SupplierData />} />
 
