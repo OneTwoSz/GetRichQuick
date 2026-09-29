@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 from .config import settings
 from .database import init_db
 from .routes import (
@@ -62,7 +63,9 @@ async def startup_event():
     """Initialize database on startup; seed the demo factory if asked."""
     init_db()
     if settings.DEMO_SEED:
-        _seed_demo_if_empty()
+        # In a worker thread: the seed is synchronous and runs its own event
+        # loop for report generation, which can't nest inside this one.
+        await run_in_threadpool(_seed_demo_if_empty)
 
 
 def _seed_demo_if_empty():

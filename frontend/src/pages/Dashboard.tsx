@@ -15,6 +15,9 @@ import {
   Zap,
 } from 'lucide-react';
 import { Card, PageHeader, Spinner, StatTile } from '@/components/ui';
+import DemoTour from '@/components/DemoTour';
+
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -75,6 +78,8 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <PageHeader title="Dashboard" description="This month's sustainability performance at a glance" />
+
+      {DEMO_MODE && <DemoTour />}
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-5">
         <StatTile

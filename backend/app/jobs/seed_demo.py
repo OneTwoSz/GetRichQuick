@@ -480,6 +480,15 @@ def main() -> int:
         else:
             logger.info("suppliers already present — skipping phase-3 seed")
 
+        # Showcase — a few months of history so every screen has something
+        # to explore on the hosted demo, plus stable demo links.
+        if not db.query(Order).filter(Order.factory_id == factory.id,
+                                      Order.order_code == "PO-2026-088").first():
+            _seed_showcase(db, factory, user)
+            logger.info("seeded showcase history, passports, share links and report")
+        else:
+            logger.info("showcase already present — skipping")
+
         logger.info("done. login at /login with %s / %s", DEMO_EMAIL, DEMO_PASSWORD)
         return 0
     finally:
@@ -560,16 +569,139 @@ def _seed_phase3(db, factory: Factory, user: User) -> None:
             db.add(ProductLifecycle(product_id=products[sku].id, distribution=export_route, **cfg))
     db.commit()
 
-    if "GTW-OC-200" in products:
+
+# Stable public links for the hosted demo (the dashboard tour links here).
+DEMO_PASSPORTS = {
+    "GTW-OC-200": "demo-oversized-tee",
+    "GTW-CT-180": "demo-crew-tee",
+    "GTW-RPC-220": "demo-polo",
+}
+DEMO_SHARE_TOKENS = {"PO-2026-102": "demo-share-po-102", "PO-2026-088": "demo-share-po-088"}
+
+
+def _run_batch(db, factory, user, *, code, process, colour, days_ago, fabric_kg, inputs, order, order_kg):
+    """One in-house batch that served a single order (ISO 14044 subdivision)."""
+    batch = ProductionBatch(
+        factory_id=factory.id, batch_code=code, process_type=process, colour=colour,
+        started_at=datetime.now(timezone.utc) - timedelta(days=days_ago),
+        completed_at=datetime.now(timezone.utc) - timedelta(days=days_ago - 1),
+        total_fabric_kg=fabric_kg, created_by=user.id,
+    )
+    db.add(batch)
+    db.flush()
+    for input_type, per_kg, quality, source in inputs:
+        db.add(BatchInput(batch_id=batch.id, input_type=input_type,
+                          quantity=round(per_kg * fabric_kg, 1), data_quality=quality, source=source))
+    result = compute_shares(fabric_kg, [AllocationLine(order_id=order.id, fabric_kg=order_kg,
+                                                       garment_units=order.units)])
+    db.add(BatchAllocation(batch_id=batch.id, order_id=order.id, product_id=order.product_id,
+                           fabric_kg=order_kg, garment_units=order.units,
+                           allocated_share=result.shares[order.id]))
+    db.flush()
+    return batch
+
+
+def _seed_showcase(db, factory: Factory, user: User) -> None:
+    products = {p.sku: p for p in db.query(Product).filter(Product.factory_id == factory.id).all()}
+    if not {"GTW-CT-180", "GTW-OC-200", "GTW-RPC-220"} <= set(products):
+        return
+
+    measured, estimated = DataQuality.MEASURED, DataQuality.ESTIMATED
+    knitting = [(BatchInputType.ELECTRICITY_KWH, 0.72, measured, "knitting hall sub-meter")]
+    dyeing = [
+        (BatchInputType.WATER_L, 92.0, measured, "borewell flow meter"),
+        (BatchInputType.ELECTRICITY_KWH, 1.05, measured, "sub-meter, dye house"),
+        (BatchInputType.CHEMICAL_KG, 0.45, estimated, "recipe sheet"),
+        (BatchInputType.DYE_KG, 0.028, measured, "weighed drawdown"),
+        (BatchInputType.STEAM_KG, 1.9, estimated, "boiler log"),
+    ]
+    cutting = [(BatchInputType.ELECTRICITY_KWH, 0.36, measured, "cutting & sewing floor meter")]
+
+    # Two completed orders from previous months, each through knitting →
+    # dyeing → cutting & sewing, so product footprints carry factory data
+    # at three stages. Plus one freshly booked order with no batches yet.
+    history = [
+        ("PO-2026-088", "C&A Germany", "GTW-CT-180", 4000, 58, "white"),
+        ("PO-2026-095", "Armedangels", "GTW-OC-200", 2500, 33, "sage green"),
+    ]
+    months = set()
+    for code, buyer, sku, units, days_ago, colour in history:
+        product = products[sku]
+        order = Order(factory_id=factory.id, order_code=code, buyer_name=buyer, product_id=product.id,
+                      units=units, status=OrderStatus.COMPLETED, created_by=user.id)
+        db.add(order)
+        db.flush()
+        order_kg = round(fabric_demand_kg(units, product.garment_weight_g / 1000.0,
+                                          product.cutting_waste_percent or 0), 1)
+        lot = round(order_kg * 1.02, 0)
+        tag = code.split("-")[-1]
+        _run_batch(db, factory, user, code=f"KNT-{tag}", process=ProcessType.KNITTING, colour="greige",
+                   days_ago=days_ago, fabric_kg=lot, inputs=knitting, order=order, order_kg=order_kg)
+        dye = _run_batch(db, factory, user, code=f"LOT-{tag}-{colour[:3].upper()}", process=ProcessType.DYEING,
+                         colour=colour, days_ago=days_ago - 4, fabric_kg=lot, inputs=dyeing,
+                         order=order, order_kg=order_kg)
+        _run_batch(db, factory, user, code=f"CUT-{tag}", process=ProcessType.CUTTING_SEWING, colour=colour,
+                   days_ago=days_ago - 9, fabric_kg=order_kg, inputs=cutting, order=order,
+                   order_kg=order_kg)
+        months.add((dye.started_at.year, dye.started_at.month))
+
+    db.add(Order(factory_id=factory.id, order_code="PO-2026-110", buyer_name="H&M Group",
+                 product_id=products["GTW-RPC-220"].id, units=2200, order_value=2_650_000.0,
+                 status=OrderStatus.OPEN, notes="Booked; production starts next week.",
+                 created_by=user.id))
+    db.commit()
+
+    # Utility bills for those months: ~30% above batch-attributed use, so
+    # reconciliation shows a believable facility overhead.
+    for year, month in sorted(months):
+        if db.query(MonthlyUtility).filter(MonthlyUtility.factory_id == factory.id,
+                                           MonthlyUtility.year == year,
+                                           MonthlyUtility.month == month).first():
+            continue
+        batches = [b for b in db.query(ProductionBatch).filter(ProductionBatch.factory_id == factory.id,
+                                                               ProductionBatch.outsourced == False).all()  # noqa: E712
+                   if (b.started_at.year, b.started_at.month) == (year, month)]
+        kwh = sum(i.quantity for b in batches for i in b.inputs if i.input_type == BatchInputType.ELECTRICITY_KWH)
+        water = sum(i.quantity for b in batches for i in b.inputs if i.input_type == BatchInputType.WATER_L)
+        db.add(MonthlyUtility(factory_id=factory.id, year=year, month=month,
+                              total_electricity_kwh=round(kwh * 1.3, 0),
+                              total_water_liters=round(water * 1.25, 0),
+                              note="EB + borewell bill totals (demo)"))
+    db.commit()
+
+    # Buyer share links at stable URLs.
+    for code, token in DEMO_SHARE_TOKENS.items():
+        order = db.query(Order).filter(Order.factory_id == factory.id, Order.order_code == code).first()
+        if order and not order.share_token:
+            order.share_token = token
+    db.commit()
+
+    # Publish every product's passport at a stable URL.
+    for sku, token in DEMO_PASSPORTS.items():
+        product = products[sku]
+        if db.query(ProductPassport).filter(ProductPassport.product_id == product.id).first():
+            continue
+        db.add(ProductPassport(factory_id=factory.id, product_id=product.id, public_token=token))
+        db.commit()
         try:
-            v = passport_service.publish(
-                db, products["GTW-OC-200"], user, reviewed_by=DEMO_NAME,
-                review_note="Demo passport — reviewed against Q2 bills and spinner submission.",
+            passport_service.publish(
+                db, product, user, reviewed_by=DEMO_NAME,
+                review_note="Demo passport — reviewed against utility bills and supplier submissions.",
             )
-            token = db.query(ProductPassport).filter(ProductPassport.id == v.passport_id).first().public_token
-            logger.info("published demo passport v%d at /passport/%s", v.version, token)
+            logger.info("published demo passport at /passport/%s", token)
         except passport_service.PublishBlocked as exc:
-            logger.warning("demo passport not published: %s", [i.message for i in exc.issues])
+            logger.warning("demo passport %s not published: %s", sku, [i.message for i in exc.issues])
+
+    # One signed sustainability report covering the last 30 days.
+    try:
+        import asyncio
+        from ..routes.reports import generate_report
+        from ..schemas import ReportCreate
+
+        now = datetime.now(timezone.utc)
+        asyncio.run(generate_report(ReportCreate(date_from=now - timedelta(days=30), date_to=now), user, db))
+    except Exception as exc:  # the demo must still boot if report rendering fails
+        logger.warning("demo report not generated: %s", exc)
 
 
 if __name__ == "__main__":
