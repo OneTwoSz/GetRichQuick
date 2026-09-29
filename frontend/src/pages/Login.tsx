@@ -3,6 +3,11 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import AuthShell, { authButton, authLabel } from '@/components/AuthShell';
 
+// The hosted demo (VITE_DEMO_MODE=true) offers one-tap sign-in to the seeded
+// demo factory. These are the public demo credentials from seed_demo.py.
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
+const DEMO_ACCOUNT = { email: 'demo@greenthread.app', password: 'demo1234' };
+
 export default function Login() {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
@@ -10,19 +15,23 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const signIn = async (credentials: { email: string; password: string }) => {
     setError('');
     setLoading(true);
 
     try {
-      await login({ email, password });
+      await login(credentials);
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Login failed';
       setError(errorMessage);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    signIn({ email, password });
   };
 
   return (
@@ -67,6 +76,27 @@ export default function Login() {
         <button type="submit" disabled={loading} className={authButton}>
           {loading ? 'Signing in…' : 'Sign in'}
         </button>
+
+        {DEMO_MODE && (
+          <>
+            <div className="flex items-center gap-3 text-xs text-gray-400">
+              <span className="h-px flex-1 bg-gray-200" />
+              or
+              <span className="h-px flex-1 bg-gray-200" />
+            </div>
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => signIn(DEMO_ACCOUNT)}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary-50 px-4 py-2.5 text-sm font-semibold text-primary-700 transition-colors hover:bg-primary-100 disabled:opacity-50"
+            >
+              Explore the demo factory
+            </button>
+            <p className="text-center text-xs text-gray-400">
+              Saravana Knits, Tiruppur — sample data, resets periodically.
+            </p>
+          </>
+        )}
 
         <p className="text-center text-sm text-gray-500">
           New to GreenThread?{' '}
