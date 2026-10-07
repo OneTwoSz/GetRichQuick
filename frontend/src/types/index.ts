@@ -18,9 +18,13 @@ export interface RegisterData {
   password: string;
 }
 
-export interface AuthResponse {
-  access_token: string;
-  token_type: string;
+export interface SessionInfo {
+  id: number;
+  created_at: string;
+  last_seen_at: string;
+  user_agent?: string | null;
+  ip_address?: string | null;
+  current: boolean;
 }
 
 // Factory types
@@ -285,6 +289,7 @@ export interface Order {
   order_value?: number | null;
   status: OrderStatus;
   share_token?: string | null;
+  share_expires_at?: string | null;
   notes?: string | null;
   created_at: string;
   fabric_demand_kg?: number | null;
@@ -345,6 +350,8 @@ export interface ProductionBatch {
   outsourced: boolean;
   job_worker_id?: number | null;
   job_work_token?: string | null;
+  job_work_expires_at?: string | null;
+  job_work_submissions?: number | null;
   created_at: string;
   inputs: BatchInput[];
   allocations: BatchAllocation[];
@@ -459,6 +466,8 @@ export interface JobWorkInfo {
   total_fabric_kg: number;
   factory_name?: string | null;
   already_submitted: boolean;
+  expires_at?: string | null;
+  submissions_left?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -525,6 +534,10 @@ export interface SupplierDataRequest {
   token: string;
   period_label?: string | null;
   created_at: string;
+  expires_at?: string | null;
+  revoked_at?: string | null;
+  max_submissions?: number | null;
+  submissions: number;
 }
 
 export interface SupplierSubmission {
@@ -563,6 +576,8 @@ export interface SupplierRequestInfo {
   stage: SupplyChainStage;
   period_label?: string | null;
   already_submitted: boolean;
+  expires_at?: string | null;
+  submissions_left?: number | null;
 }
 
 export interface LifecycleSettings {

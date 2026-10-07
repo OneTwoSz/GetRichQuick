@@ -1,6 +1,12 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { suppliersAPI } from '@/services/api';
-import type { Supplier, SupplierFormData, SupplierSubmission, SupplyChainStage } from '@/types';
+import type {
+  Supplier,
+  SupplierDataRequest,
+  SupplierFormData,
+  SupplierSubmission,
+  SupplyChainStage,
+} from '@/types';
 import { COUNTRIES, SUPPLY_STAGES, SUPPLY_STAGE_LABELS } from '@/components/lifecycleLabels';
 
 // Upstream supply chain: Tier 2–4 facilities with location and
@@ -202,11 +208,15 @@ function SupplierRow({
   onRemove: () => void;
 }) {
   const [subs, setSubs] = useState<SupplierSubmission[] | null>(null);
+  const [requests, setRequests] = useState<SupplierDataRequest[]>([]);
   const [link, setLink] = useState<string | null>(null);
   const [period, setPeriod] = useState('');
 
   useEffect(() => {
-    if (open && subs === null) suppliersAPI.getSubmissions(supplier.id).then(setSubs);
+    if (open && subs === null) {
+      suppliersAPI.getSubmissions(supplier.id).then(setSubs);
+      suppliersAPI.getDataRequests(supplier.id).then(setRequests);
+    }
   }, [open, subs, supplier.id]);
 
   const makeLink = async () => {
@@ -214,6 +224,22 @@ function SupplierRow({
       period_label: period.trim() || undefined,
     });
     setLink(`${window.location.origin}/supplier-data/${req.token}`);
+    setRequests((prev) => [req, ...prev]);
+  };
+
+  const revoke = async (req: SupplierDataRequest) => {
+    if (!confirm('Revoke this link? The supplier will no longer be able to submit with it.')) return;
+    const updated = await suppliersAPI.revokeDataRequest(supplier.id, req.id);
+    setRequests((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+  };
+
+  const status = (r: SupplierDataRequest) => {
+    if (r.revoked_at) return { label: 'Revoked', tone: 'bg-gray-100 text-gray-600' };
+    if (r.expires_at && new Date(r.expires_at).getTime() <= Date.now())
+      return { label: 'Expired', tone: 'bg-gray-100 text-gray-600' };
+    if (r.max_submissions != null && r.submissions >= r.max_submissions)
+      return { label: 'Used up', tone: 'bg-amber-50 text-amber-700' };
+    return { label: 'Active', tone: 'bg-green-50 text-green-700' };
   };
 
   const collectsData = !['raw_materials', 'trims_packaging'].includes(supplier.stage);
@@ -264,6 +290,43 @@ function SupplierRow({
               >
                 Copy
               </button>
+            </div>
+          )}
+          {requests.length > 0 && (
+            <div>
+              <div className="mb-1 text-xs font-medium text-gray-500">Request links</div>
+              <ul className="divide-y rounded-lg border border-gray-200">
+                {requests.map((r) => {
+                  const st = status(r);
+                  return (
+                    <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-xs">
+                      <span className={`rounded px-1.5 py-0.5 font-medium ${st.tone}`}>{st.label}</span>
+                      <span className="text-gray-700">{r.period_label ?? new Date(r.created_at).toLocaleDateString()}</span>
+                      <span className="text-gray-500">
+                        {r.submissions}
+                        {r.max_submissions != null ? `/${r.max_submissions}` : ''} submitted
+                      </span>
+                      {r.expires_at && (
+                        <span className="text-gray-500">expires {new Date(r.expires_at).toLocaleDateString()}</span>
+                      )}
+                      <span className="flex-1" />
+                      {st.label === 'Active' && (
+                        <>
+                          <button
+                            className="font-medium text-primary"
+                            onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/supplier-data/${r.token}`)}
+                          >
+                            Copy
+                          </button>
+                          <button className="font-medium text-red-600" onClick={() => revoke(r)}>
+                            Revoke
+                          </button>
+                        </>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           )}
           {subs === null ? (

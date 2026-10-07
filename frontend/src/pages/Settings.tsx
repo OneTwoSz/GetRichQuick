@@ -1,3 +1,4 @@
+import SecuritySettings from '@/components/SecuritySettings';
 import { useState, useEffect, FormEvent } from 'react';
 import { factoryAPI } from '@/services/api';
 import type { Factory, FactoryFormData } from '@/types';
@@ -215,6 +216,8 @@ export default function Settings() {
           <div>Website: www.greenthread.io</div>
         </div>
       </div>
+
+      <SecuritySettings />
     </div>
   );
 }

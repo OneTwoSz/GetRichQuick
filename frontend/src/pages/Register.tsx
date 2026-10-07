@@ -2,6 +2,7 @@ import { useState, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import AuthShell, { authButton, authLabel } from '@/components/AuthShell';
+import { apiErrorMessage } from '@/services/api';
 
 export default function Register() {
   const { register } = useAuth();
@@ -21,8 +22,8 @@ export default function Register() {
       return;
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
       return;
     }
 
@@ -31,8 +32,7 @@ export default function Register() {
     try {
       await register({ name, email, password });
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Registration failed';
-      setError(errorMessage);
+      setError(apiErrorMessage(err, 'Registration failed. Try again.'));
     } finally {
       setLoading(false);
     }

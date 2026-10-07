@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 from .config import settings
@@ -19,7 +19,31 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware - allow frontend to access API
+_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+CSRF_HEADER = "x-requested-with"
+
+
+@app.middleware("http")
+async def csrf_and_security_headers(request: Request, call_next):
+    """CSRF guard + baseline security headers.
+
+    State-changing /api requests must carry X-Requested-With. Browsers only
+    allow cross-origin pages to send custom headers after a CORS preflight,
+    which this server only grants to the origins below — so another site
+    can't make a signed-in user's browser submit requests (the session
+    cookie is also SameSite=Lax)."""
+    if (request.method in _UNSAFE_METHODS and request.url.path.startswith("/api/")
+            and CSRF_HEADER not in request.headers):
+        return JSONResponse(status_code=403, content={"detail": "Missing X-Requested-With header"})
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    return response
+
+
+# CORS middleware - allow the dev frontend to access the API. Hosted deploys
+# serve the frontend from the same origin, so no CORS is needed there.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:3000"],  # Frontend URLs

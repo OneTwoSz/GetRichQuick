@@ -1,7 +1,7 @@
 import Logo from '@/components/Logo';
 import { useEffect, useState, FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
-import { publicAPI } from '@/services/api';
+import { apiErrorMessage, publicAPI } from '@/services/api';
 import type { BatchInputFormData, BatchInputType, JobWorkInfo } from '@/types';
 
 // Login-free single form for a job worker (dyeing unit / CETP) to submit
@@ -30,6 +30,7 @@ export default function JobWork() {
   const [submittedBy, setSubmittedBy] = useState('');
   const [state, setState] = useState<'loading' | 'form' | 'done' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState('This link is invalid. Ask the factory to send a new one.');
 
   useEffect(() => {
     if (!token) return;
@@ -39,7 +40,11 @@ export default function JobWork() {
         setInfo(data);
         setState('form');
       })
-      .catch(() => setState('error'));
+      .catch((err) => {
+        if (err?.response?.status !== 404) setLinkError(apiErrorMessage(err, linkError));
+        setState('error');
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const submit = async (e: FormEvent) => {
@@ -53,8 +58,8 @@ export default function JobWork() {
     try {
       await publicAPI.submitJobWork(token, inputs, submittedBy.trim() || undefined);
       setState('done');
-    } catch {
-      setError('Submission failed — please try again.');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Submission failed — please try again.'));
     }
   };
 
@@ -66,7 +71,7 @@ export default function JobWork() {
         {state === 'loading' && <div className="text-center text-gray-500">Loading…</div>}
         {state === 'error' && (
           <div className="bg-white rounded-lg shadow p-6 text-sm text-red-600 text-center">
-            This link is invalid or has expired. Ask the factory to send a new one.
+            {linkError}
           </div>
         )}
         {state === 'done' && (
@@ -89,6 +94,12 @@ export default function JobWork() {
                 {info.process_type}
                 {info.colour ? ` · ${info.colour}` : ''} · {info.total_fabric_kg} kg fabric
               </p>
+              {info.submissions_left != null && (
+                <p className="text-xs text-gray-500 mt-2">
+                  {info.submissions_left} submission{info.submissions_left === 1 ? '' : 's'} left on this link
+                  {info.expires_at ? ` · valid until ${new Date(info.expires_at).toLocaleDateString()}` : ''}
+                </p>
+              )}
               {info.already_submitted && (
                 <p className="text-xs text-amber-700 bg-amber-50 rounded p-2 mt-2">
                   Figures were already submitted for this lot — submitting again adds to them.

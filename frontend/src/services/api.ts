@@ -1,6 +1,5 @@
 import axios from 'axios';
 import type {
-  AuthResponse,
   LoginCredentials,
   RegisterData,
   User,
@@ -49,6 +48,7 @@ import type {
   SupplierSubmissionFormData,
   SupplyChainStage,
   ValidationResult,
+  SessionInfo,
 } from '@/types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
@@ -62,37 +62,44 @@ export function mediaUrl(path?: string | null): string | null {
   return /^https?:/.test(API_URL) ? new URL(API_URL).origin + path : path;
 }
 
-// Create axios instance
+// Create axios instance. Auth is an httpOnly session cookie set by the
+// server (page scripts can't read it), so requests just send credentials.
+// X-Requested-With is the CSRF guard the API requires on every change.
 const api = axios.create({
   baseURL: API_URL,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
+    'X-Requested-With': 'GreenThread',
   },
 });
 
-// Request interceptor to add auth token
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
+const AUTH_PAGES = ['/login', '/register', '/forgot-password', '/reset-password'];
 
-// Response interceptor to handle auth errors
+// Session ended (expired, revoked, signed out elsewhere) → back to sign-in.
+// /auth/* calls handle their own 401s (e.g. the startup "who am I" check).
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
+    const url: string = error.config?.url ?? '';
+    if (
+      error.response?.status === 401 &&
+      !url.startsWith('/auth/') &&
+      !AUTH_PAGES.includes(window.location.pathname)
+    ) {
       window.location.href = '/login';
     }
     return Promise.reject(error);
   }
 );
+
+/** Human-readable message from an API error (FastAPI `detail`). */
+export function apiErrorMessage(err: unknown, fallback = 'Something went wrong.'): string {
+  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail) && typeof detail[0]?.msg === 'string') return detail[0].msg;
+  return fallback;
+}
 
 // Auth API
 export const authAPI = {
@@ -100,9 +107,26 @@ export const authAPI = {
     api.post<User>('/auth/register', data).then((res) => res.data),
 
   login: (credentials: LoginCredentials) =>
-    api.post<AuthResponse>('/auth/login', credentials).then((res) => res.data),
+    api.post<User>('/auth/login', credentials).then((res) => res.data),
+
+  logout: () => api.post('/auth/logout').then(() => undefined),
+
+  logoutAll: () => api.post('/auth/logout-all').then(() => undefined),
 
   getMe: () => api.get<User>('/auth/me').then((res) => res.data),
+
+  sessions: () => api.get<SessionInfo[]>('/auth/sessions').then((res) => res.data),
+
+  revokeSession: (id: number) => api.delete(`/auth/sessions/${id}`).then(() => undefined),
+
+  changePassword: (current_password: string, new_password: string) =>
+    api.post('/auth/change-password', { current_password, new_password }).then(() => undefined),
+
+  requestPasswordReset: (email: string) =>
+    api.post('/auth/password-reset/request', { email }).then(() => undefined),
+
+  confirmPasswordReset: (token: string, new_password: string) =>
+    api.post('/auth/password-reset/confirm', { token, new_password }).then(() => undefined),
 };
 
 // Factory API
@@ -273,8 +297,11 @@ export const ordersAPI = {
   getFootprint: (id: number) =>
     api.get<OrderFootprint>(`/orders/${id}/footprint`).then((res) => res.data),
 
-  createShareLink: (id: number) =>
-    api.post<Order>(`/orders/${id}/share-link`).then((res) => res.data),
+  createShareLink: (id: number, rotate = false) =>
+    api.post<Order>(`/orders/${id}/share-link`, null, { params: rotate ? { rotate: true } : undefined })
+      .then((res) => res.data),
+
+  revokeShareLink: (id: number) => api.delete<Order>(`/orders/${id}/share-link`).then((res) => res.data),
 };
 
 // Production Batches API — the primary data-entry unit.
@@ -307,8 +334,13 @@ export const batchesAPI = {
   complete: (batchId: number) =>
     api.post<ProductionBatch>(`/batches/${batchId}/complete`).then((res) => res.data),
 
-  createJobworkLink: (batchId: number) =>
-    api.post<ProductionBatch>(`/batches/${batchId}/jobwork-link`).then((res) => res.data),
+  createJobworkLink: (batchId: number, rotate = false) =>
+    api.post<ProductionBatch>(`/batches/${batchId}/jobwork-link`, null, {
+      params: rotate ? { rotate: true } : undefined,
+    }).then((res) => res.data),
+
+  revokeJobworkLink: (batchId: number) =>
+    api.delete<ProductionBatch>(`/batches/${batchId}/jobwork-link`).then((res) => res.data),
 };
 
 // Job workers (outsourced dyeing units, CETPs).
@@ -321,7 +353,7 @@ export const jobWorkersAPI = {
 
 // Public (login-free) endpoints: job-work submission + buyer share view.
 // Plain axios instance — no auth token, no 401 redirect.
-const publicApi = axios.create({ baseURL: API_URL });
+const publicApi = axios.create({ baseURL: API_URL, headers: { 'X-Requested-With': 'GreenThread' } });
 
 export const publicAPI = {
   getJobWorkInfo: (token: string) =>
@@ -364,6 +396,9 @@ export const suppliersAPI = {
 
   createDataRequest: (id: number, data: { stage?: SupplyChainStage; period_label?: string }) =>
     api.post<SupplierDataRequest>(`/suppliers/${id}/data-requests`, data).then((res) => res.data),
+
+  revokeDataRequest: (supplierId: number, requestId: number) =>
+    api.delete<SupplierDataRequest>(`/suppliers/${supplierId}/data-requests/${requestId}`).then((res) => res.data),
 
   getDataRequests: (id: number) =>
     api.get<SupplierDataRequest[]>(`/suppliers/${id}/data-requests`).then((res) => res.data),

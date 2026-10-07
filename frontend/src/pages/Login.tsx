@@ -2,6 +2,7 @@ import { useState, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import AuthShell, { authButton, authLabel } from '@/components/AuthShell';
+import { apiErrorMessage } from '@/services/api';
 
 // The hosted demo (VITE_DEMO_MODE=true) offers one-tap sign-in to the seeded
 // demo factory. These are the public demo credentials from seed_demo.py.
@@ -22,8 +23,7 @@ export default function Login() {
     try {
       await login(credentials);
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Login failed';
-      setError(errorMessage);
+      setError(apiErrorMessage(err, 'Sign-in failed. Check your connection and try again.'));
     } finally {
       setLoading(false);
     }
@@ -58,9 +58,14 @@ export default function Login() {
         </div>
 
         <div>
-          <label htmlFor="password" className={authLabel}>
-            Password
-          </label>
+          <div className="flex items-baseline justify-between">
+            <label htmlFor="password" className={authLabel}>
+              Password
+            </label>
+            <Link to="/forgot-password" className="text-xs font-medium text-primary hover:text-primary-600">
+              Forgot password?
+            </Link>
+          </div>
           <input
             id="password"
             name="password"

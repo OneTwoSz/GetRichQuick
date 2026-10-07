@@ -4,9 +4,7 @@ entered at; that's the batch). Includes the per-order footprint endpoint
 (Allocation Statement + data-quality mix) and the buyer-facing read-only
 share link, so a factory can answer any brand portal request in one click.
 """
-import secrets
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -22,7 +20,10 @@ from ..schemas import (
 from ..services import batch_carbon
 from ..services.allocation import fabric_demand_kg
 from ..services.audit_logger import AuditLogger
+from ..config import settings
+from ..utils import links
 from ..utils.auth import get_current_user
+from ..utils.timeutil import is_past
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
 # Public, login-free router for the buyer share link.
@@ -202,14 +203,23 @@ def order_footprint(
 @router.post("/{order_id}/share-link", response_model=OrderResponse)
 def create_share_link(
     order_id: int,
+    rotate: bool = False,
+    days: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Mint (or return) the read-only buyer share token for this order."""
+    """Mint (or return) the read-only buyer share link for this order.
+
+    An existing, unexpired link is returned as-is; `rotate=true` replaces it
+    (the old URL stops working). Links expire after `days` (default
+    SHARE_LINK_DAYS)."""
+    if days is not None and not 1 <= days <= 365:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="days must be 1–365")
     factory = _factory_for(current_user, db)
     order = _get_order(order_id, factory, db)
-    if not order.share_token:
-        order.share_token = secrets.token_urlsafe(16)
+    if rotate or not order.share_token or is_past(order.share_expires_at):
+        order.share_token = links.new_token()
+        order.share_expires_at = links.expiry(days or settings.SHARE_LINK_DAYS)
         db.commit()
         db.refresh(order)
         AuditLogger.log_action(
@@ -220,11 +230,33 @@ def create_share_link(
     return _order_response(order, db)
 
 
+@router.delete("/{order_id}/share-link", response_model=OrderResponse)
+def revoke_share_link(
+    order_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Stop the buyer share link working immediately."""
+    factory = _factory_for(current_user, db)
+    order = _get_order(order_id, factory, db)
+    order.share_token = None
+    order.share_expires_at = None
+    db.commit()
+    db.refresh(order)
+    AuditLogger.log_action(
+        db=db, factory_id=factory.id, user_id=current_user.id,
+        action="DELETE", entity_type="order_share_link", entity_id=order.id,
+    )
+    return _order_response(order, db)
+
+
 @share_router.get("/{token}", response_model=OrderFootprintResponse)
-def public_share_view(token: str, db: Session = Depends(get_db)):
+def public_share_view(token: str, request: Request, db: Session = Depends(get_db)):
     """Login-free buyer view: footprint + allocation statement + data
     quality mix. Read-only by construction — nothing here mutates."""
+    links.throttle_lookup(request, "share")
     order = db.query(Order).filter(Order.share_token == token).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Share link not found")
+    links.ensure_usable(expires_at=order.share_expires_at)
     return build_footprint_response(db, order)

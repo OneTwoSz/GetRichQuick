@@ -1,3 +1,4 @@
+import LinkPanel from '@/components/LinkPanel';
 import { useEffect, useState, FormEvent } from 'react';
 import { ordersAPI, productsAPI } from '@/services/api';
 import type { Order, OrderFormData, OrderFootprint, OrderStatus, Product } from '@/types';
@@ -85,12 +86,25 @@ export default function Orders() {
     }
   };
 
-  const shareLink = async (order: Order) => {
-    const updated = await ordersAPI.createShareLink(order.id);
-    setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
-    const url = `${window.location.origin}/share/${updated.share_token}`;
-    await navigator.clipboard.writeText(url).catch(() => undefined);
-    alert(`Buyer share link copied:\n${url}`);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const shareLink = async (order: Order, rotate = false) => {
+    setLinkBusy(true);
+    try {
+      const updated = await ordersAPI.createShareLink(order.id, rotate);
+      setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+    } finally {
+      setLinkBusy(false);
+    }
+  };
+  const revokeShareLink = async (order: Order) => {
+    if (!confirm('Revoke this buyer link? Anyone using it will lose access.')) return;
+    setLinkBusy(true);
+    try {
+      const updated = await ordersAPI.revokeShareLink(order.id);
+      setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+    } finally {
+      setLinkBusy(false);
+    }
   };
 
   if (loading) return <div className="text-gray-500">Loading orders…</div>;
@@ -232,12 +246,27 @@ export default function Orders() {
                     {selected.buyer_name ? ` · ${selected.buyer_name}` : ''}
                   </div>
                 </div>
-                <button
-                  onClick={() => shareLink(selected)}
-                  className="text-sm border border-primary text-primary px-3 py-2 rounded-lg font-medium"
-                >
-                  {selected.share_token ? 'Copy buyer share link' : 'Create buyer share link'}
-                </button>
+                {!selected.share_token && (
+                  <button
+                    onClick={() => shareLink(selected)}
+                    disabled={linkBusy}
+                    className="text-sm border border-primary text-primary px-3 py-2 rounded-lg font-medium"
+                  >
+                    Create buyer share link
+                  </button>
+                )}
+                {selected.share_token && (
+                  <div className="w-full">
+                    <LinkPanel
+                      note="Read-only buyer link: footprint, allocation statement and data-quality mix."
+                      url={`${window.location.origin}/share/${selected.share_token}`}
+                      expiresAt={selected.share_expires_at}
+                      busy={linkBusy}
+                      onRotate={() => shareLink(selected, true)}
+                      onRevoke={() => revokeShareLink(selected)}
+                    />
+                  </div>
+                )}
               </div>
               {footprintLoading ? (
                 <div className="text-sm text-gray-500 bg-white rounded-lg shadow p-6">

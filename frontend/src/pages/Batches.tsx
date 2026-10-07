@@ -1,3 +1,4 @@
+import LinkPanel from '@/components/LinkPanel';
 import { useEffect, useMemo, useState, FormEvent } from 'react';
 import { batchesAPI, jobWorkersAPI, ordersAPI } from '@/services/api';
 import type {
@@ -579,16 +580,24 @@ function BatchDetail({
     }
   };
 
-  const mintJobworkLink = async () => {
+  const mintJobworkLink = async (rotate = false) => {
     setBusy(true);
     try {
-      const updated = await batchesAPI.createJobworkLink(batch.id);
-      onChanged(updated);
-      const url = `${window.location.origin}/jobwork/${updated.job_work_token}`;
-      await navigator.clipboard.writeText(url).catch(() => undefined);
-      alert(`Data request link copied:\n${url}`);
+      onChanged(await batchesAPI.createJobworkLink(batch.id, rotate));
     } catch (err: any) {
       setError(err?.response?.data?.detail ?? 'Failed to create link');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revokeJobworkLink = async () => {
+    if (!confirm('Revoke this link? The job worker will no longer be able to submit.')) return;
+    setBusy(true);
+    try {
+      onChanged(await batchesAPI.revokeJobworkLink(batch.id));
+    } catch (err: any) {
+      setError(err?.response?.data?.detail ?? 'Failed to revoke link');
     } finally {
       setBusy(false);
     }
@@ -607,13 +616,13 @@ function BatchDetail({
             </div>
           </div>
           <div className="flex gap-2">
-            {batch.outsourced && (
+            {batch.outsourced && !batch.job_work_token && (
               <button
-                onClick={mintJobworkLink}
+                onClick={() => mintJobworkLink()}
                 disabled={busy}
                 className="text-sm border border-primary text-primary px-3 py-2 rounded-lg font-medium"
               >
-                {batch.job_work_token ? 'Copy data request link' : 'Create data request link'}
+                Create data request link
               </button>
             )}
             {!batch.completed_at && (
@@ -628,6 +637,20 @@ function BatchDetail({
           </div>
         </div>
         {error && <div className="text-sm text-red-600 bg-red-50 rounded p-2 mt-3">{error}</div>}
+
+        {batch.outsourced && batch.job_work_token && (
+          <div className="mt-3">
+            <LinkPanel
+              note="Send this to the job worker (e.g. on WhatsApp). No login needed."
+              url={`${window.location.origin}/jobwork/${batch.job_work_token}`}
+              expiresAt={batch.job_work_expires_at}
+              usesLeft={batch.job_work_expires_at ? Math.max(5 - (batch.job_work_submissions ?? 0), 0) : null}
+              busy={busy}
+              onRotate={() => mintJobworkLink(true)}
+              onRevoke={revokeJobworkLink}
+            />
+          </div>
+        )}
 
         {/* Inputs */}
         <div className="mt-4">

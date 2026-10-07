@@ -8,9 +8,9 @@ split) and the allocation engine stores each order's share.
 Also carries the job-work flow: a batch flagged `outsourced` gets a token
 URL the dyeing unit can open without a login to submit actual consumption.
 """
-import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, status
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timezone
@@ -45,7 +45,10 @@ from ..schemas import (
 from ..services import batch_carbon
 from ..services.allocation import AllocationLine, compute_shares, fabric_demand_kg
 from ..services.audit_logger import AuditLogger
+from ..config import settings
+from ..utils import links
 from ..utils.auth import get_current_user
+from ..utils.timeutil import as_utc, is_past
 
 router = APIRouter(prefix="/batches", tags=["Production Batches"])
 jobworker_router = APIRouter(prefix="/job-workers", tags=["Job Workers"])
@@ -429,11 +432,15 @@ def create_job_worker(
 @router.post("/{batch_id}/jobwork-link", response_model=ProductionBatchResponse)
 def create_jobwork_link(
     batch_id: int,
+    rotate: bool = False,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Mint the token URL a job worker uses to submit actuals — data path 1
-    (MEASURED) of the outsourcing spec. Single form, no login."""
+    (MEASURED) of the outsourcing spec. Single form, no login.
+
+    Links expire after JOBWORK_LINK_DAYS and accept JOBWORK_MAX_SUBMISSIONS
+    submissions; `rotate=true` issues a fresh link (old URL stops working)."""
     factory = _factory_for(current_user, db)
     batch = _get_batch(batch_id, factory, db)
     if not batch.outsourced:
@@ -441,22 +448,42 @@ def create_jobwork_link(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Job-work links are for batches flagged outsourced",
         )
-    if not batch.job_work_token:
-        batch.job_work_token = secrets.token_urlsafe(16)
+    if rotate or not batch.job_work_token or is_past(batch.job_work_expires_at):
+        batch.job_work_token = links.new_token()
+        batch.job_work_expires_at = links.expiry(settings.JOBWORK_LINK_DAYS)
+        batch.job_work_submissions = 0
         db.commit()
         db.refresh(batch)
     return batch
 
 
+@router.delete("/{batch_id}/jobwork-link", response_model=ProductionBatchResponse)
+def revoke_jobwork_link(
+    batch_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Stop the job-work link working immediately."""
+    factory = _factory_for(current_user, db)
+    batch = _get_batch(batch_id, factory, db)
+    batch.job_work_token = None
+    batch.job_work_expires_at = None
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
 @jobwork_router.get("/{token}")
-def jobwork_request_info(token: str, db: Session = Depends(get_db)):
+def jobwork_request_info(token: str, request: Request, db: Session = Depends(get_db)):
     """What the job worker sees when they open the link: just enough
     context to fill the form."""
+    links.throttle_lookup(request, "jobwork")
     batch = db.query(ProductionBatch).filter(
         ProductionBatch.job_work_token == token
     ).first()
     if not batch:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Link not found")
+    links.ensure_usable(expires_at=batch.job_work_expires_at)
     factory = db.query(Factory).filter(Factory.id == batch.factory_id).first()
     return {
         "batch_code": batch.batch_code,
@@ -465,6 +492,9 @@ def jobwork_request_info(token: str, db: Session = Depends(get_db)):
         "total_fabric_kg": batch.total_fabric_kg,
         "factory_name": factory.name if factory else None,
         "already_submitted": len(batch.inputs) > 0,
+        "expires_at": as_utc(batch.job_work_expires_at),
+        "submissions_left": (None if batch.job_work_expires_at is None
+                             else max(settings.JOBWORK_MAX_SUBMISSIONS - (batch.job_work_submissions or 0), 0)),
     }
 
 
@@ -472,14 +502,21 @@ def jobwork_request_info(token: str, db: Session = Depends(get_db)):
 def jobwork_submit(
     token: str,
     payload: JobWorkSubmission,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     """Job worker posts actual consumption for the outsourced batch."""
+    links.throttle_lookup(request, "jobwork")
     batch = db.query(ProductionBatch).filter(
         ProductionBatch.job_work_token == token
     ).first()
     if not batch:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Link not found")
+    links.ensure_usable(expires_at=batch.job_work_expires_at)
+    # Links minted before limits existed (no expiry) keep working unlimited.
+    if batch.job_work_expires_at is not None:
+        links.ensure_submissions_left(batch.job_work_submissions or 0, settings.JOBWORK_MAX_SUBMISSIONS)
+    links.throttle_submit(request, "jobwork")
 
     created = []
     for input_payload in payload.inputs:
@@ -493,6 +530,7 @@ def jobwork_submit(
         row = BatchInput(batch_id=batch.id, **input_payload.model_dump())
         db.add(row)
         created.append(row)
+    batch.job_work_submissions = (batch.job_work_submissions or 0) + 1
     db.commit()
 
     AuditLogger.log_action(

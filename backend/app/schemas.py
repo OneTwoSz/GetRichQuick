@@ -19,6 +19,15 @@ from .models import (
 )
 
 
+def _assume_utc(value: datetime) -> datetime:
+    """SQLite drops timezone info from server_default=now() timestamps;
+    they are UTC, so say so — otherwise browsers render them as local time."""
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
+UTCDateTime = Annotated[datetime, AfterValidator(_assume_utc)]
+
+
 # User schemas
 class UserBase(BaseModel):
     email: EmailStr
@@ -43,13 +52,27 @@ class UserResponse(UserBase):
         from_attributes = True
 
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 
-class TokenData(BaseModel):
-    email: Optional[str] = None
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str = Field(min_length=20)
+    new_password: str
+
+
+class SessionOut(BaseModel):
+    id: int
+    created_at: datetime
+    last_seen_at: datetime
+    user_agent: Optional[str] = None
+    ip_address: Optional[str] = None
+    current: bool = False
 
 
 # Factory schemas
@@ -318,6 +341,7 @@ class OrderResponse(OrderBase):
     id: int
     factory_id: int
     share_token: Optional[str] = None
+    share_expires_at: Optional[UTCDateTime] = None
     created_at: datetime
     # Computed: units × net garment weight ÷ (1 − waste%), per style.
     fabric_demand_kg: Optional[float] = None
@@ -407,6 +431,8 @@ class ProductionBatchResponse(ProductionBatchBase):
     id: int
     factory_id: int
     job_work_token: Optional[str] = None
+    job_work_expires_at: Optional[UTCDateTime] = None
+    job_work_submissions: Optional[int] = None
     created_at: datetime
     inputs: List[BatchInputResponse] = Field(default_factory=list)
     allocations: List[BatchAllocationResponse] = Field(default_factory=list)
@@ -573,13 +599,6 @@ class AuditLogResponse(BaseModel):
 # Phase 3 — life cycle, supply chain, passports
 # ---------------------------------------------------------------------------
 
-def _assume_utc(value: datetime) -> datetime:
-    """SQLite drops timezone info from server_default=now() timestamps;
-    they are UTC, so say so — otherwise browsers render them as local time."""
-    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
-
-
-UTCDateTime = Annotated[datetime, AfterValidator(_assume_utc)]
 
 Boundary = Literal["cradle_to_gate", "cradle_to_customer", "cradle_to_grave"]
 TransportModeLC = Literal["truck", "rail", "sea_freight", "air"]
@@ -632,6 +651,7 @@ class ProductSupplierResponse(BaseModel):
 class SupplierDataRequestCreate(BaseModel):
     stage: Optional[SupplyChainStage] = None  # defaults to the supplier's stage
     period_label: Optional[str] = None
+    expires_in_days: Optional[int] = Field(default=None, ge=1, le=365)  # default from settings
 
 
 class SupplierDataRequestResponse(BaseModel):
@@ -641,6 +661,10 @@ class SupplierDataRequestResponse(BaseModel):
     token: str
     period_label: Optional[str] = None
     created_at: UTCDateTime
+    expires_at: Optional[UTCDateTime] = None
+    revoked_at: Optional[UTCDateTime] = None
+    max_submissions: Optional[int] = None
+    submissions: int = 0
 
     class Config:
         from_attributes = True

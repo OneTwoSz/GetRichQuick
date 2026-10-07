@@ -1,7 +1,7 @@
 import Logo from '@/components/Logo';
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { publicAPI } from '@/services/api';
+import { apiErrorMessage, publicAPI } from '@/services/api';
 import type { OrderFootprint } from '@/types';
 import FootprintCard from '@/components/FootprintCard';
 
@@ -19,7 +19,13 @@ export default function Share() {
     publicAPI
       .getSharedFootprint(token)
       .then(setFootprint)
-      .catch(() => setError('This share link is invalid or has been removed.'))
+      .catch((err) =>
+        setError(
+          err?.response?.status === 404
+            ? 'This share link is invalid or has been removed.'
+            : apiErrorMessage(err, 'This share link is invalid or has been removed.')
+        )
+      )
       .finally(() => setLoading(false));
   }, [token]);
 

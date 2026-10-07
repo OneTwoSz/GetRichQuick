@@ -51,7 +51,8 @@ export default defineConfig({
             // for a snappier offline return. Mutations (POST/PUT/DELETE) are
             // NEVER cached — they go through the IndexedDB queue.
             urlPattern: ({ url, request }) =>
-              request.method === 'GET' && url.pathname.startsWith('/api/'),
+              request.method === 'GET' && url.pathname.startsWith('/api/') &&
+              !url.pathname.startsWith('/api/auth/'), // never serve a cached session
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-cache',

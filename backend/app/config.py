@@ -12,11 +12,28 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 1 week
 
-    # Email (optional)
+    # Email (optional) — used for password-reset links. Gmail works free with
+    # an app password (SMTP_HOST=smtp.gmail.com, SMTP_PORT=587). When unset,
+    # reset links are written to the server log instead of emailed.
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: Optional[int] = None
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM: Optional[str] = None
+
+    # Sessions (server-side, httpOnly cookie)
+    SESSION_COOKIE: str = "gt_session"
+    SESSION_IDLE_DAYS: int = 14     # signed out after this long unused
+    SESSION_MAX_DAYS: int = 30      # signed out after this long regardless
+    # None = secure cookies whenever PUBLIC_BASE_URL is https.
+    COOKIE_SECURE: Optional[bool] = None
+
+    # No-login links (buyer share, job-work, supplier data requests)
+    SHARE_LINK_DAYS: int = 90
+    JOBWORK_LINK_DAYS: int = 30
+    JOBWORK_MAX_SUBMISSIONS: int = 5
+    SUPPLIER_LINK_DAYS: int = 30
+    SUPPLIER_MAX_SUBMISSIONS: int = 3
 
     # OCR
     ANTHROPIC_API_KEY: Optional[str] = None

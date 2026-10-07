@@ -4,6 +4,8 @@ import { ThemeProvider } from '@/hooks/useTheme';
 import Layout from '@/components/Layout';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
+import ForgotPassword from '@/pages/ForgotPassword';
+import ResetPassword from '@/pages/ResetPassword';
 import Dashboard from '@/pages/Dashboard';
 import FactorySetup from '@/pages/FactorySetup';
 import Production from '@/pages/Production';
@@ -81,6 +83,9 @@ function AppRoutes() {
           </PublicRoute>
         }
       />
+      <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+      {/* Reachable signed in or out — a reset link always works. */}
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route
         path="/register"
         element={

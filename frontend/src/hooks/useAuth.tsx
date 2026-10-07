@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authAPI } from '@/services/api';
 import type { User, LoginCredentials, RegisterData } from '@/types';
@@ -8,8 +8,10 @@ interface AuthContextType {
   loading: boolean;
   login: (credentials: LoginCredentials) => Promise<void>;
   register: (data: RegisterData) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
+
+const NO_AUTOLOGIN = 'gt-signed-out'; // dev: don't auto-login after an explicit sign-out
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -18,41 +20,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const bootstrap = async () => {
-      let token = localStorage.getItem('token');
+  // React StrictMode runs effects twice in development; without this guard
+  // the dev auto-login would open two sessions.
+  const booted = useRef(false);
 
-      // Dev convenience: when running `npm run dev` we don't want to click
-      // through the login screen every reload. If no token is present and
-      // we're in a Vite dev build, silently log in as the demo user. The
-      // real auth flow stays intact — production builds (import.meta.env.DEV
-      // === false) skip this entirely.
-      if (!token && import.meta.env.DEV) {
+  useEffect(() => {
+    if (booted.current) return;
+    booted.current = true;
+    const bootstrap = async () => {
+      // Tokens used to live in localStorage; sessions are httpOnly cookies
+      // now, so drop any leftover.
+      try {
+        localStorage.removeItem('token');
+      } catch {
+        // storage blocked — nothing to clean
+      }
+
+      let me: User | null = null;
+      try {
+        me = await authAPI.getMe();
+      } catch {
+        me = null;
+      }
+
+      // Dev convenience: in a Vite dev build with no session, silently sign
+      // in as the demo user — unless you signed out in this tab. Production
+      // builds skip this entirely.
+      if (!me && import.meta.env.DEV && sessionStorage.getItem(NO_AUTOLOGIN) !== '1') {
         try {
-          const resp = await authAPI.login({
-            email: 'demo@greenthread.app',
-            password: 'demo1234',
-          });
-          token = resp.access_token;
-          localStorage.setItem('token', token);
+          me = await authAPI.login({ email: 'demo@greenthread.app', password: 'demo1234' });
           // eslint-disable-next-line no-console
           console.info('[dev] auto-logged in as demo@greenthread.app');
         } catch (err) {
-          // Probably means the backend isn't up or the demo user wasn't
-          // seeded. Fall through to the login screen so the dev sees why.
           // eslint-disable-next-line no-console
           console.warn('[dev] auto-login failed:', err);
         }
       }
 
-      if (token) {
-        try {
-          const me = await authAPI.getMe();
-          setUser(me);
-        } catch {
-          localStorage.removeItem('token');
-        }
-      }
+      setUser(me);
       setLoading(false);
     };
 
@@ -60,20 +65,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (credentials: LoginCredentials) => {
-    const response = await authAPI.login(credentials);
-    localStorage.setItem('token', response.access_token);
-    const user = await authAPI.getMe();
-    setUser(user);
+    setUser(await authAPI.login(credentials));
+    sessionStorage.removeItem(NO_AUTOLOGIN);
     navigate('/');
   };
 
   const register = async (data: RegisterData) => {
-    await authAPI.register(data);
-    await login({ email: data.email, password: data.password });
+    setUser(await authAPI.register(data)); // registering signs you in
+    navigate('/');
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
+  const logout = async () => {
+    await authAPI.logout().catch(() => undefined);
+    sessionStorage.setItem(NO_AUTOLOGIN, '1');
     setUser(null);
     navigate('/login');
   };

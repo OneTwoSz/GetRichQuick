@@ -1,7 +1,7 @@
 import Logo from '@/components/Logo';
 import { FormEvent, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { publicAPI } from '@/services/api';
+import { apiErrorMessage, publicAPI } from '@/services/api';
 import type { SupplierRequestInfo, SupplierSubmissionFormData } from '@/types';
 import { SUPPLY_STAGE_LABELS } from '@/components/lifecycleLabels';
 
@@ -35,6 +35,7 @@ export default function SupplierData() {
   const [form, setForm] = useState<SupplierSubmissionFormData>(EMPTY);
   const [state, setState] = useState<'loading' | 'form' | 'done' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState('This link is invalid. Ask your customer to send a new one.');
 
   useEffect(() => {
     if (!token) return;
@@ -45,7 +46,11 @@ export default function SupplierData() {
         setForm((f) => ({ ...f, period_label: data.period_label ?? '' }));
         setState('form');
       })
-      .catch(() => setState('error'));
+      .catch((err) => {
+        if (err?.response?.status !== 404) setLinkError(apiErrorMessage(err, linkError));
+        setState('error');
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const submit = async (e: FormEvent) => {
@@ -62,8 +67,8 @@ export default function SupplierData() {
         submitted_by: form.submitted_by?.trim() || undefined,
       });
       setState('done');
-    } catch {
-      setError('Submission failed — please check the numbers and try again.');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Submission failed — please check the numbers and try again.'));
     }
   };
 
@@ -87,7 +92,7 @@ export default function SupplierData() {
         {state === 'loading' && <div className="text-center text-gray-500">Loading…</div>}
         {state === 'error' && (
           <div className="bg-white rounded-lg shadow p-6 text-sm text-red-600 text-center">
-            This link is invalid. Ask your customer to send a new one.
+            {linkError}
           </div>
         )}
         {state === 'done' && (
@@ -112,6 +117,12 @@ export default function SupplierData() {
                 Enter totals for the whole facility over the period. Only per-kg averages are used —
                 your volumes are not shown to anyone else.
               </p>
+              {info.submissions_left != null && (
+                <p className="text-xs text-gray-500 mt-2">
+                  {info.submissions_left} submission{info.submissions_left === 1 ? '' : 's'} left on this link
+                  {info.expires_at ? ` · valid until ${new Date(info.expires_at).toLocaleDateString()}` : ''}
+                </p>
+              )}
               {info.already_submitted && (
                 <p className="text-xs text-amber-700 bg-amber-50 rounded p-2 mt-2">
                   Figures were already submitted on this link — a new submission replaces them.

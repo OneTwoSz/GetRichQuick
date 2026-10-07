@@ -451,6 +451,9 @@ class Order(Base):
     # public endpoint serves footprint + allocation statement + data-quality
     # mix so the factory can answer any brand portal request in one click.
     share_token = Column(String, unique=True, nullable=True, index=True)
+    # Null = never expires (links minted before expiry existed). Revoking a
+    # link clears share_token, so the old URL stops working at once.
+    share_expires_at = Column(DateTime(timezone=True), nullable=True)
     notes = Column(Text, nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -502,6 +505,8 @@ class ProductionBatch(Base):
     outsourced = Column(Boolean, default=False, nullable=False)
     job_worker_id = Column(Integer, ForeignKey("job_workers.id"), nullable=True)
     job_work_token = Column(String, unique=True, nullable=True, index=True)
+    job_work_expires_at = Column(DateTime(timezone=True), nullable=True)
+    job_work_submissions = Column(Integer, nullable=True)  # submissions on the current token
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -688,6 +693,9 @@ class SupplierDataRequest(Base):
     stage = Column(Enum(SupplyChainStage), nullable=False)
     token = Column(String, unique=True, nullable=False, index=True)
     period_label = Column(String, nullable=True)  # e.g. "Apr–Jun 2026"
+    expires_at = Column(DateTime(timezone=True), nullable=True)   # null = never
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    max_submissions = Column(Integer, nullable=True)              # null = unlimited
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -772,3 +780,38 @@ class PassportVersion(Base):
     published_at = Column(DateTime(timezone=True), server_default=func.now())
 
     passport = relationship("ProductPassport", back_populates="versions")
+
+
+# ---------------------------------------------------------------------------
+# Authentication — server-side sessions and password reset
+# ---------------------------------------------------------------------------
+
+
+class UserSession(Base):
+    """A signed-in browser. The cookie carries a random token; only its
+    SHA-256 is stored, so a database leak doesn't hand out live sessions.
+    Server-side rows make logout, "sign out everywhere" and revoking a lost
+    phone actually work — unlike a self-contained JWT."""
+    __tablename__ = "user_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    last_seen_at = Column(DateTime(timezone=True), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)  # absolute cap
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    user_agent = Column(String, nullable=True)
+    ip_address = Column(String, nullable=True)
+
+
+class PasswordResetToken(Base):
+    """Single-use, short-lived reset link. Stored hashed, like sessions."""
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used_at = Column(DateTime(timezone=True), nullable=True)
